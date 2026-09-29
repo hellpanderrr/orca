@@ -6,7 +6,8 @@ import { tuiAgentToAgentKind } from '@/lib/telemetry'
 import { createPasteReadinessTimeoutNotice } from '@/lib/launch-agent-paste-timeout-notice'
 import {
   deliverLaunchPromptToAgentTab,
-  seedNativeChatLaunchDraftForAgentTab
+  seedNativeChatLaunchDraftForAgentTab,
+  seedNativeChatLaunchPromptForAgentTab
 } from '@/lib/agent-launch-prompt-delivery'
 import { initialAgentTabViewModeProps } from '@/lib/native-chat-initial-view-mode'
 import { isNativeChatTranscriptLocalReadable } from '@/lib/native-chat-transcript-readability'
@@ -18,7 +19,8 @@ import {
   resolveTuiAgentLaunchEnv
 } from '../../../shared/tui-agent-launch-defaults'
 import { TUI_AGENT_CONFIG } from '../../../shared/tui-agent-config'
-import { seedCommandCodeSubmittedPromptStatus } from '@/lib/command-code-prompt-status-seed'
+import { launchRunsInLocalWsl } from '../../../shared/startup-line-prompt-carry'
+import { CLIENT_PLATFORM } from '@/lib/new-workspace'
 import type { TuiAgent } from '../../../shared/tui-agent'
 import type { LaunchSource } from '../../../shared/telemetry-events'
 import { resolveAgentLaunchExecutionContext } from '@/lib/launch-agent-execution-context'
@@ -156,20 +158,28 @@ function launchAgentInNewTabInternal(args: LaunchAgentInNewTabArgs): LaunchAgent
     agentEnv,
     sessionOptions: resolveInitialNativeChatSessionOptions(store.settings, initialViewModeOptions)
   }
-  const { startupPlan, pasteDraftAfterLaunch, submitPastedPrompt } = planLaunchAgentStartupPrompt({
-    base: startupPlanBase,
-    prompt: trimmedPrompt,
-    promptDelivery,
-    isFollowupPath
-  })
+  const runtimeEnvironmentId = getRuntimeEnvironmentIdForWorktree(store, worktreeId)
+  const launchesOnPairedHost = isWebRuntimeSessionActive(runtimeEnvironmentId)
+  const { startupPlan, launchFile, pasteDraftAfterLaunch, submitPastedPrompt } =
+    planLaunchAgentStartupPrompt({
+      base: startupPlanBase,
+      prompt: trimmedPrompt,
+      promptDelivery,
+      isFollowupPath,
+      launchesOnPairedHost,
+      launchesInLocalWsl: launchRunsInLocalWsl({
+        hostPlatform: CLIENT_PLATFORM,
+        launchPlatform: resolvedLaunchPlatform,
+        isRemote
+      })
+    })
   let promptDeliveryResult: Promise<{ delivered: boolean; failureNotified: boolean }> | undefined
 
   if (!startupPlan) {
     return null
   }
 
-  const runtimeEnvironmentId = getRuntimeEnvironmentIdForWorktree(store, worktreeId)
-  if (isWebRuntimeSessionActive(runtimeEnvironmentId)) {
+  if (launchesOnPairedHost) {
     if (beforeSurfaceOpen?.({ kind: 'host-published' }) === false) {
       return null
     }
@@ -266,7 +276,12 @@ function launchAgentInNewTabInternal(args: LaunchAgentInNewTabArgs): LaunchAgent
     ...(startupPlan.startupCommandDelivery
       ? { startupCommandDelivery: startupPlan.startupCommandDelivery }
       : {}),
-    ...(agent === 'command-code' && hasPrompt && promptDelivery === 'auto-submit'
+    ...(launchFile ? { launchFile } : {}),
+    // Why: Command Code has no prompt-submit hook, so a prompt its launch line submits seeds working.
+    ...(agent === 'command-code' &&
+    hasPrompt &&
+    promptDelivery !== 'draft' &&
+    pasteDraftAfterLaunch === null
       ? { initialAgentStatus: { agent, prompt: trimmedPrompt } }
       : {}),
     telemetry: {
@@ -281,6 +296,10 @@ function launchAgentInNewTabInternal(args: LaunchAgentInNewTabArgs): LaunchAgent
     // Why: the draft rode in on argv (Claude --prefill etc.), so no paste runs
     // and deliverLaunchPromptToAgentTab never seeds. Mirror it into chat here.
     seedNativeChatLaunchDraftForAgentTab({ tabId: tab.id, agent, text: trimmedPrompt })
+  }
+  if (hasPrompt && promptDelivery === 'submit-after-ready' && pasteDraftAfterLaunch === null) {
+    // Why: the launch line submits it, so no paste seeds the chat's copy of the prompt.
+    seedNativeChatLaunchPromptForAgentTab({ tabId: tab.id, agent, text: trimmedPrompt })
   }
   if (pasteDraftAfterLaunch !== null) {
     const timeoutNotice = createPasteReadinessTimeoutNotice({
@@ -299,11 +318,6 @@ function launchAgentInNewTabInternal(args: LaunchAgentInNewTabArgs): LaunchAgent
       ...(onPromptDeliveryUnconfirmed ? { onUnconfirmedDelivery: onPromptDeliveryUnconfirmed } : {})
     }).then((delivered) => {
       if (delivered) {
-        if (agent === 'command-code' && submitPastedPrompt) {
-          // Why: Command Code has no prompt-submit hook; when Orca submits a
-          // generated prompt after readiness, seed working at delivery time.
-          seedCommandCodeSubmittedPromptStatus(worktreeId, tab.id, trimmedPrompt)
-        }
         onPromptDelivered?.()
       }
       return { delivered, failureNotified: !delivered && timeoutNotice.wasNotified() }

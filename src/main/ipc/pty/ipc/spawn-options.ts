@@ -24,6 +24,7 @@ import { shouldSeedPreAttachPtySize } from '../delivery/attached-pty-size'
 import { getStartupTerminalIngressIntent } from '../../terminal-startup-color-query-replies'
 import { resolveConfiguredTerminalShellArgs } from '../configured-terminal-shell-args'
 import type { PtyIpcSpawnState } from './spawn-state'
+import { parseLaunchFile } from '../../../../shared/launch-prompt-file'
 
 /** Carries deletions to provider-owned environments, including persistent older daemons. */
 export async function buildPtyIpcSpawnOptions(
@@ -85,6 +86,14 @@ export async function buildPtyIpcSpawnOptions(
   }
   if (args.startupCommandDelivery !== undefined) {
     ctx.spawnOptions.startupCommandDelivery = args.startupCommandDelivery
+  }
+  // Only the renderer's own command names the file; a resume or adopted pane types another line.
+  const launchFile =
+    ctx.launchCommand !== undefined && ctx.launchCommand === args.command
+      ? parseLaunchFile(args.launchFile)
+      : undefined
+  if (launchFile) {
+    ctx.spawnOptions.launchFile = launchFile
   }
   if (isTuiAgent(args.launchAgent)) {
     ctx.spawnOptions.launchAgent = args.launchAgent

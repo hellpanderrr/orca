@@ -43,16 +43,15 @@ export type TerminalCreateOptions = {
   launchAgent?: TuiAgent
   startupAgent?: TuiAgent
   /**
-   * Initial text offered to `startupAgent`'s launch command, for an agent whose CLI takes a prompt
+   * Initial text for `startupAgent`'s launch command, for an agent whose CLI takes a prompt
    * argument. Not a general prompt channel: an agent that takes its text only after start has no
    * launch command to carry it, and a caller that sets this for one is refused rather than having
-   * the prompt silently dropped. The text rides only when the typed line can carry it
-   * (`startup-line-prompt-carry`); otherwise the agent starts clean, `onStartupPromptCarry` says so,
-   * and post-start delivery belongs to whoever owns the live PTY.
+   * the prompt silently dropped. It rides that command, directly or as a pointer to a launch file
+   * (`startup-line-prompt-carry`), except in WSL, where a line too long to type leaves it unsent.
    */
   startupPrompt?: string
-  /** Main-internal: whether `startupPrompt` rode the launch command. Called once the plan is built. */
-  onStartupPromptCarry?: (carried: boolean) => void
+  /** Main-internal: the WSL case above; the caller pastes `startupPrompt` once the agent is ready. */
+  onStartupPromptLeftForPaste?: () => void
   /** Written by the execution host before the launch line naming it is typed (`startupPrompt`
    *  carries its pointer). */
   launchFile?: LaunchFile

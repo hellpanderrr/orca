@@ -2,7 +2,8 @@ import { toast } from 'sonner'
 import { useAppStore } from '@/store'
 import {
   deliverLaunchPromptToAgentTab,
-  seedNativeChatLaunchDraftForAgentTab
+  seedNativeChatLaunchDraftForAgentTab,
+  seedNativeChatLaunchPromptForAgentTab
 } from '@/lib/agent-launch-prompt-delivery'
 import { planAgentCliArgsSuffix } from '@/lib/tui-agent-startup'
 import { activateAndRevealWorktree } from '@/lib/worktree-activation'
@@ -163,7 +164,7 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
   let primaryTabId: string | null
   let startupPlan = null as ReturnType<typeof buildDirectWorkItemAgentStartupPlan>['startupPlan']
   let effectiveAgent: TuiAgent | null = null
-  let draftLaunchedNatively = false
+  let promptOnLaunchCommand = false
   let plan: AgentSessionLaunchPlan | null = null
   let structuredLaunchCompleted = false
   const draftContent = await getDirectWorkItemDraftContent(item, repoConnectionId)
@@ -226,7 +227,7 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
     }
     effectiveAgent = launchPreparation.effectiveAgent
     startupPlan = launchPreparation.startupPlan
-    draftLaunchedNatively = launchPreparation.draftLaunchedNatively
+    promptOnLaunchCommand = launchPreparation.promptOnLaunchCommand
     startupPlanFailed = launchPreparation.startupPlanFailed
     plan = launchPreparation.plan
 
@@ -244,7 +245,8 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
               effectiveAgent,
               startupPlan,
               launchSource,
-              promptDelivery === 'draft' ? draftContent : undefined
+              promptDelivery === 'draft' ? draftContent : undefined,
+              launchPreparation.launchFile
             ))
       })
       return activationHolder.value !== false
@@ -296,8 +298,21 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
   }
   if (
     primaryTabId &&
+    effectiveAgent &&
+    promptDelivery === 'submit-after-ready' &&
+    promptOnLaunchCommand
+  ) {
+    // Why: the launch line submits it, so no paste seeds the chat's copy of the prompt.
+    seedNativeChatLaunchPromptForAgentTab({
+      tabId: primaryTabId,
+      agent: effectiveAgent,
+      text: draftContent
+    })
+  }
+  if (
+    primaryTabId &&
     startupPlan &&
-    !draftLaunchedNatively &&
+    !promptOnLaunchCommand &&
     !(promptDelivery === 'draft' && startupPlan.draftPrompt)
   ) {
     const submit = promptDelivery === 'submit-after-ready'

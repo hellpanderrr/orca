@@ -17,6 +17,13 @@ import {
 import { translate } from '@/i18n/i18n'
 import { resolveInitialNativeChatSessionOptions } from '@/components/native-chat/native-chat-launch-session-options'
 import type { PersistedNativeChatSessionOptions } from '../../../shared/native-chat-session-options'
+import type { LaunchFile } from '../../../shared/launch-prompt-file'
+import {
+  launchRunsInLocalWsl,
+  planStartupWithLaunchPrompt
+} from '../../../shared/startup-line-prompt-carry'
+import { CLIENT_PLATFORM } from '@/lib/new-workspace'
+import { agentPromptRidesLaunchCommand } from '../../../shared/tui-agent-startup'
 
 export function buildDirectWorkItemAgentStartupPlan(args: {
   agent: TuiAgent | null
@@ -39,13 +46,17 @@ export function buildDirectWorkItemAgentStartupPlan(args: {
   /** Why: SSH remotes deploy the CLI shim as plain `orca`, so the Linux-only
    * `orca-ide` rename must not be applied for remote launches. */
   isRemote?: boolean
+  /** A paired host of unknown version may neither stage a long line nor write a launch file. */
+  launchesOnPairedHost?: boolean
 }): {
   startupPlan: AgentStartupPlan | null
-  draftLaunchedNatively: boolean
+  launchFile?: LaunchFile
+  /** The launch command carries the content (a native draft or a submitted prompt); no paste runs. */
+  promptOnLaunchCommand: boolean
   startupPlanFailed: boolean
 } {
   if (args.agent === null) {
-    return { startupPlan: null, draftLaunchedNatively: false, startupPlanFailed: false }
+    return { startupPlan: null, promptOnLaunchCommand: false, startupPlanFailed: false }
   }
 
   const effectiveAgentArgs =
@@ -60,6 +71,35 @@ export function buildDirectWorkItemAgentStartupPlan(args: {
       : {}),
     nativeChatTranscriptIsLocalReadable: args.nativeChatTranscriptIsLocalReadable
   })
+  const planInputs = {
+    agent: args.agent,
+    cmdOverrides: args.settings?.agentCmdOverrides ?? {},
+    platform: args.launchPlatform,
+    isRemote: args.isRemote,
+    agentArgs: effectiveAgentArgs,
+    agentEnv: effectiveAgentEnv,
+    sessionOptions
+  }
+  // Temporary, until paired hosts advertise staging: they keep the paste after readiness.
+  if (
+    args.promptDelivery === 'submit-after-ready' &&
+    !args.launchesOnPairedHost &&
+    agentPromptRidesLaunchCommand(args.agent)
+  ) {
+    const carried = planStartupWithLaunchPrompt(planInputs, args.draftContent, {
+      wsl: launchRunsInLocalWsl({
+        hostPlatform: CLIENT_PLATFORM,
+        launchPlatform: args.launchPlatform,
+        isRemote: args.isRemote === true
+      })
+    })
+    return {
+      startupPlan: carried.plan,
+      ...(carried.launchFile ? { launchFile: carried.launchFile } : {}),
+      promptOnLaunchCommand: carried.plan !== null && !carried.promptLeftForPaste,
+      startupPlanFailed: carried.plan === null
+    }
+  }
   const draftLaunchPlan =
     args.promptDelivery === 'submit-after-ready'
       ? null
@@ -90,7 +130,7 @@ export function buildDirectWorkItemAgentStartupPlan(args: {
           : {}),
         ...(draftLaunchPlan.env ? { env: draftLaunchPlan.env } : {})
       },
-      draftLaunchedNatively: true,
+      promptOnLaunchCommand: true,
       startupPlanFailed: false
     }
   }
@@ -111,7 +151,7 @@ export function buildDirectWorkItemAgentStartupPlan(args: {
   }
   return {
     startupPlan,
-    draftLaunchedNatively: false,
+    promptOnLaunchCommand: false,
     startupPlanFailed: startupPlan === null
   }
 }
@@ -122,7 +162,8 @@ export function buildDirectWorkItemStartupOpts(
   launchSource: LaunchSource,
   /** Unsent launch context, for the view-mode decision only. Set it for every
    *  draft launch — a natively-prefilled plan carries no `draftPrompt`. */
-  launchDraftText?: string
+  launchDraftText?: string,
+  launchFile?: LaunchFile
 ): {
   startup?: {
     command: string
@@ -133,6 +174,7 @@ export function buildDirectWorkItemStartupOpts(
     launchDraftText?: string
     sessionOptions?: AgentStartupPlan['sessionOptions']
     startupCommandDelivery?: StartupCommandDelivery
+    launchFile?: LaunchFile
     telemetry?: AgentStartedTelemetry
   }
 } {
@@ -155,6 +197,7 @@ export function buildDirectWorkItemStartupOpts(
       ...(plan.startupCommandDelivery
         ? { startupCommandDelivery: plan.startupCommandDelivery }
         : {}),
+      ...(launchFile ? { launchFile } : {}),
       ...(telemetry ? { telemetry } : {})
     }
   }

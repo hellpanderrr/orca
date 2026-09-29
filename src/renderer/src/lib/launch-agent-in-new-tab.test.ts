@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { toAppSshPtyId } from '../../../shared/ssh-pty-id'
 import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../shared/constants'
 
 const mockCreateTab = vi.fn()
@@ -15,8 +14,6 @@ const mockMarkNativeChatLaunchPromptFailed = vi.fn()
 const mockTrack = vi.fn()
 const mockToastMessage = vi.fn()
 const mockWaitForAgentReady = vi.fn()
-
-const LEAF_ID = '11111111-1111-4111-8111-111111111111'
 
 const store = {
   activeRepoId: 'repo-1',
@@ -243,12 +240,14 @@ describe('launchAgentInNewTab', () => {
       launchAgent: 'codex',
       viewMode: 'chat'
     })
+    // The launch line submits the prompt; the chat still shows it from the start.
     expect(mockQueueTabStartupCommand).toHaveBeenCalledWith(
       'tab-1',
       expect.objectContaining({
-        command: expect.not.stringContaining('large generated prompt')
+        command: expect.stringContaining('large generated prompt')
       })
     )
+    expect(mockPasteDraftWhenAgentReady).not.toHaveBeenCalled()
     expect(mockSeedNativeChatLaunchPrompt).toHaveBeenCalledWith({
       tabId: 'tab-1',
       agent: 'codex',
@@ -678,8 +677,7 @@ describe('launchAgentInNewTab', () => {
     }
   })
 
-  it('seeds working after Command Code submit-after-ready prompt delivery', async () => {
-    store.repos = [{ id: 'repo-1', connectionId: 'ssh-a', path: '/repo' }]
+  it('submits Command Code’s generated prompt on its launch line and seeds working from it', async () => {
     const { launchAgentInNewTab } = await import('./launch-agent-in-new-tab')
 
     const result = launchAgentInNewTab({
@@ -688,83 +686,17 @@ describe('launchAgentInNewTab', () => {
       prompt: 'large generated prompt',
       promptDelivery: 'submit-after-ready'
     })
-    store.terminalLayoutsByTabId = {
-      'tab-1': {
-        activeLeafId: LEAF_ID,
-        ptyIdsByLeafId: { [LEAF_ID]: toAppSshPtyId('ssh-a', 'pty-1') }
-      }
-    }
-    store.ptyIdsByTabId = { 'tab-1': [toAppSshPtyId('ssh-a', 'pty-1')] }
-    await expect(result?.promptDeliveryResult).resolves.toEqual({
-      delivered: true,
-      failureNotified: false
-    })
-    await Promise.resolve()
-    await Promise.resolve()
 
+    expect(result?.promptDeliveryResult).toBeUndefined()
+    expect(mockPasteDraftWhenAgentReady).not.toHaveBeenCalled()
+    // Why: Command Code has no prompt-submit hook, so the spawn seeds working from this prompt.
     expect(mockQueueTabStartupCommand).toHaveBeenCalledWith(
       'tab-1',
       expect.objectContaining({
-        command: "command-code --trust '--yolo'"
+        command: "command-code --trust '--yolo' 'large generated prompt'",
+        initialAgentStatus: { agent: 'command-code', prompt: 'large generated prompt' }
       })
     )
-    expect(mockPasteDraftWhenAgentReady).toHaveBeenCalledWith(
-      expect.objectContaining({
-        tabId: 'tab-1',
-        content: 'large generated prompt',
-        agent: 'command-code',
-        submit: true,
-        forcePaste: true
-      })
-    )
-    expect(mockSetAgentStatus).toHaveBeenCalledWith(
-      `tab-1:${LEAF_ID}`,
-      {
-        state: 'working',
-        prompt: 'large generated prompt',
-        agentType: 'command-code',
-        // Why: seeded from Orca's own prompt delivery, not a provider hook (STA-4293).
-        observation: expect.objectContaining({ origin: 'process', kind: 'transition' })
-      },
-      undefined,
-      undefined,
-      { connectionId: 'ssh-a' }
-    )
-    expect(mockTrack).not.toHaveBeenCalledWith('agent_prompt_sent', expect.anything())
-  })
-
-  it('does not recreate SSH status when clear arrives before disconnect state', async () => {
-    let finishDelivery: ((delivered: boolean) => void) | undefined
-    mockPasteDraftWhenAgentReady.mockReturnValue(
-      new Promise<boolean>((resolve) => {
-        finishDelivery = resolve
-      })
-    )
-    store.repos = [{ id: 'repo-1', connectionId: 'ssh-a', path: '/repo' }]
-    const ptyId = toAppSshPtyId('ssh-a', 'pty-1')
-    const { launchAgentInNewTab } = await import('./launch-agent-in-new-tab')
-
-    const result = launchAgentInNewTab({
-      agent: 'command-code',
-      worktreeId: 'wt-1',
-      prompt: 'pending prompt',
-      promptDelivery: 'submit-after-ready'
-    })
-    store.terminalLayoutsByTabId = {
-      'tab-1': { activeLeafId: LEAF_ID, ptyIdsByLeafId: { [LEAF_ID]: ptyId } }
-    }
-    store.ptyIdsByTabId = { 'tab-1': [ptyId] }
-
-    // Why: explicit disconnect sends the transient clear before its state
-    // event, while the old connection can still appear connected and bound.
-    store.transientClearedAgentStatusConnectionIds = { 'ssh-a': true }
-    finishDelivery?.(true)
-    await expect(result?.promptDeliveryResult).resolves.toEqual({
-      delivered: true,
-      failureNotified: false
-    })
-
-    expect(mockSetAgentStatus).not.toHaveBeenCalled()
   })
 
   it('does not track prompt-sent when submit-after-ready delivery fails', async () => {
@@ -772,7 +704,7 @@ describe('launchAgentInNewTab', () => {
     const { launchAgentInNewTab } = await import('./launch-agent-in-new-tab')
 
     const result = launchAgentInNewTab({
-      agent: 'command-code',
+      agent: 'amp',
       worktreeId: 'wt-1',
       prompt: 'large generated prompt',
       promptDelivery: 'submit-after-ready'
@@ -795,7 +727,7 @@ describe('launchAgentInNewTab', () => {
     const { launchAgentInNewTab } = await import('./launch-agent-in-new-tab')
 
     const result = launchAgentInNewTab({
-      agent: 'command-code',
+      agent: 'amp',
       worktreeId: 'wt-1',
       prompt: 'large generated prompt',
       promptDelivery: 'submit-after-ready'
@@ -820,7 +752,7 @@ describe('launchAgentInNewTab', () => {
     const { launchAgentInNewTab } = await import('./launch-agent-in-new-tab')
 
     const result = launchAgentInNewTab({
-      agent: 'command-code',
+      agent: 'amp',
       worktreeId: 'wt-1',
       prompt: 'large generated prompt',
       promptDelivery: 'submit-after-ready'
@@ -842,7 +774,7 @@ describe('launchAgentInNewTab', () => {
     const { launchAgentInNewTab } = await import('./launch-agent-in-new-tab')
 
     const result = launchAgentInNewTab({
-      agent: 'command-code',
+      agent: 'amp',
       worktreeId: 'wt-1',
       prompt: 'large generated prompt',
       promptDelivery: 'submit-after-ready'
@@ -864,7 +796,7 @@ describe('launchAgentInNewTab', () => {
     const { launchAgentInNewTab } = await import('./launch-agent-in-new-tab')
 
     const result = launchAgentInNewTab({
-      agent: 'command-code',
+      agent: 'amp',
       worktreeId: 'wt-1',
       prompt: 'large generated prompt',
       promptDelivery: 'submit-after-ready'
@@ -877,7 +809,26 @@ describe('launchAgentInNewTab', () => {
     expect(mockToastMessage).not.toHaveBeenCalled()
   })
 
-  it('queues per-launch CLI arguments without putting generated prompts in argv', async () => {
+  it('hands a prompt past the argv ceiling to the host as a launch file the command points at', async () => {
+    const { launchAgentInNewTab } = await import('./launch-agent-in-new-tab')
+    const prompt = `Session context:\n${'x'.repeat(20_000)}`
+
+    const result = launchAgentInNewTab({
+      agent: 'codex',
+      worktreeId: 'wt-1',
+      prompt,
+      promptDelivery: 'submit-after-ready'
+    })
+
+    expect(result?.promptDeliveryResult).toBeUndefined()
+    expect(mockPasteDraftWhenAgentReady).not.toHaveBeenCalled()
+    const queued = mockQueueTabStartupCommand.mock.calls[0]?.[1]
+    expect(queued?.launchFile).toMatchObject({ content: prompt, sensitive: false })
+    expect(queued?.command).toContain(queued?.launchFile?.placeholder)
+    expect(queued?.command).not.toContain('xxxx')
+  })
+
+  it('queues per-launch CLI arguments ahead of the generated prompt on argv', async () => {
     const { launchAgentInNewTab } = await import('./launch-agent-in-new-tab')
 
     launchAgentInNewTab({
@@ -891,7 +842,7 @@ describe('launchAgentInNewTab', () => {
     expect(mockQueueTabStartupCommand).toHaveBeenCalledWith(
       'tab-1',
       expect.objectContaining({
-        command: "codex '--model' 'gpt-5.5'"
+        command: "codex '--model' 'gpt-5.5' 'large generated prompt'"
       })
     )
   })

@@ -1,79 +1,83 @@
 /**
- * Whether a launch prompt rides the command line that gets TYPED into the user's shell, or the agent
- * starts clean and the prompt is pasted once it is ready.
+ * How a launch prompt reaches an agent whose CLI takes one: on its command line, always, never
+ * typed or pasted into a TUI that may not be ready for it.
  *
- * Measured on the built line, not the raw prompt: quoting, the launcher, its arguments and session
- * options all land on that line, and every failure a long or multi-line typed line has is a property
- * of the line — macOS bash 3.2 reads each newline as Enter, a line editor reads any other control
- * byte as a key, a canonical-mode write truncates a line
- * past MAX_CANON (1024 on macOS), and cmd caps a line at 8191. Decided here, where the line exists,
- * so the answer is a fact about what was built rather than a prediction of it.
+ * A POSIX host stages a long or multi-line typed line where it writes it (`startup-command-staging`),
+ * so the prompt rides that line whole. A Windows host cannot stage, so a line it could not type as
+ * it is (a control byte, or past cmd's line cap) carries a pointer to a host-written file instead,
+ * as does a prompt too long for argv or one carrying a secret (`launch-prompt-file`).
+ *
+ * Temporary: a WSL session can do neither (the distro cannot read the Windows temp path), so a line
+ * it could not type as it is leaves the prompt for its caller to paste once the agent is ready.
  */
 
+import { carryInLaunchFile, planLaunchPrompt, type LaunchFile } from './launch-prompt-file'
 import { TUI_AGENT_CONFIG } from './tui-agent-config'
-import { buildAgentStartupPlan, type AgentStartupPlan } from './tui-agent-startup'
-import type { TuiAgent } from './tui-agent'
-
-/** Half of macOS MAX_CANON: a single typed line this long survived every canonical-mode write
- *  measured, and 1 KiB did not. */
-export const TYPED_STARTUP_LINE_PROMPT_BUDGET_BYTES = 512
-
-const encoder = new TextEncoder()
-
-function typedLineBytes(line: string): number {
-  return encoder.encode(line).byteLength
-}
-
-export function startupLineCarriesPrompt(args: {
-  agent: TuiAgent
-  withPrompt: AgentStartupPlan | null
-}): boolean {
-  const { withPrompt } = args
-  if (!withPrompt || withPrompt.followupPrompt !== null) {
-    return false
-  }
-  // Hermes types a fixed line that reads the prompt from the spawn env, so the line never grows
-  // with the text; its own env budget already returned null above when the text did not fit.
-  if (TUI_AGENT_CONFIG[args.agent].promptInjectionMode === 'hermes-query') {
-    return true
-  }
-  const line = withPrompt.launchCommand
-  return !hasControlByte(line) && typedLineBytes(line) <= TYPED_STARTUP_LINE_PROMPT_BUDGET_BYTES
-}
-
-/** Any C0 byte or DEL, not just CR/LF: no quoter escapes them, and a single-line command is written
- *  raw, so a TAB completes, ESC starts a key sequence, and ^C/^U/^W kill or edit the line. */
-export function hasControlByte(line: string): boolean {
-  for (let i = 0; i < line.length; i += 1) {
-    const code = line.charCodeAt(i)
-    if (code < 0x20 || code === 0x7f) {
-      return true
-    }
-  }
-  return false
-}
+import {
+  agentPromptRidesLaunchCommand,
+  buildAgentStartupPlan,
+  type AgentStartupPlan
+} from './tui-agent-startup'
+import { typedStartupLineFits, windowsTypedStartupLineFits } from './typed-startup-line'
 
 type StartupPlanInputs = Omit<
   Parameters<typeof buildAgentStartupPlan>[0],
   'prompt' | 'allowEmptyPromptLaunch'
 >
 
-/**
- * The startup plan for a launch that offers a prompt: the prompted plan when its typed line can
- * carry the text, else the clean plan, with which one it was.
- */
-export function planStartupWithPromptCandidate(
+export type LaunchPromptStartupPlan = {
+  plan: AgentStartupPlan | null
+  /** Written by the execution host before it types the line naming it. */
+  launchFile?: LaunchFile
+  /** The plan starts the agent clean; only a WSL session leaves the prompt for its caller. */
+  promptLeftForPaste?: true
+}
+
+export function planStartupWithLaunchPrompt(
   inputs: StartupPlanInputs,
-  prompt: string
-): { plan: AgentStartupPlan | null; promptCarried: boolean } {
-  if (prompt.trim()) {
-    const withPrompt = buildAgentStartupPlan({ ...inputs, prompt, allowEmptyPromptLaunch: true })
-    if (startupLineCarriesPrompt({ agent: inputs.agent, withPrompt })) {
-      return { plan: withPrompt, promptCarried: true }
-    }
+  prompt: string,
+  options: { sensitive?: boolean; wsl?: boolean } = {}
+): LaunchPromptStartupPlan {
+  const build = (text: string): AgentStartupPlan | null =>
+    buildAgentStartupPlan({ ...inputs, prompt: text, allowEmptyPromptLaunch: true })
+  const text = prompt.trim()
+  // An agent that takes its text only after start has no line to carry it; its caller pastes.
+  if (!text || !agentPromptRidesLaunchCommand(inputs.agent)) {
+    return { plan: build(text) }
   }
-  return {
-    plan: buildAgentStartupPlan({ ...inputs, prompt: '', allowEmptyPromptLaunch: true }),
-    promptCarried: false
+  if (options.wsl) {
+    const typed = build(text)
+    return typed && (readsPromptFromEnv(inputs) || typedStartupLineFits(typed.launchCommand))
+      ? { plan: typed }
+      : { plan: build(''), promptLeftForPaste: true }
   }
+  const planned = planLaunchPrompt(text, options)
+  const plan = build(planned.prompt)
+  if (planned.launchFile) {
+    return { plan, launchFile: planned.launchFile }
+  }
+  if (!plan || !typesUnstaged(inputs) || windowsTypedStartupLineFits(plan.launchCommand)) {
+    return { plan }
+  }
+  const pointer = carryInLaunchFile(text, false)
+  return { plan: build(pointer.prompt), launchFile: pointer.launchFile }
+}
+
+/** A local agent launched for a Linux runtime on a Windows host runs in WSL. */
+export function launchRunsInLocalWsl(args: {
+  hostPlatform: NodeJS.Platform
+  launchPlatform: NodeJS.Platform
+  isRemote: boolean
+}): boolean {
+  return args.hostPlatform === 'win32' && !args.isRemote && args.launchPlatform !== 'win32'
+}
+
+/** Whether the host types this line as built: only POSIX hosts stage, and Hermes' fixed line reads
+ *  its prompt from the spawn env, so it never grows with the text. */
+function typesUnstaged(inputs: StartupPlanInputs): boolean {
+  return inputs.platform === 'win32' && !readsPromptFromEnv(inputs)
+}
+
+function readsPromptFromEnv(inputs: StartupPlanInputs): boolean {
+  return TUI_AGENT_CONFIG[inputs.agent].promptInjectionMode === 'hermes-query'
 }

@@ -13,9 +13,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { StartupLineDelivery } from './startup-delivery-report'
 import { quoteStartupArg } from './tui-agent-startup-shell'
-
-/** Half of macOS MAX_CANON: a typed line this long survived every canonical-mode write measured. */
-export const TYPED_STARTUP_COMMAND_BUDGET_BYTES = 512
+import { typedStartupLineFits } from './typed-startup-line'
 
 export const STAGED_STARTUP_COMMAND_PREFIX = 'orca-launch-'
 
@@ -35,22 +33,9 @@ export type StartupCommandStaging = {
 // Why only these: the staged body is Orca's portable quoting, verified literal in exactly these five.
 const STAGING_SHELLS = new Set(['bash', 'zsh', 'sh', 'dash', 'fish'])
 
-const encoder = new TextEncoder()
-
 export function stagingShellName(shellPath: string | undefined): string | null {
   const name = shellPath?.split('/').pop()?.replace(/^-/, '').toLowerCase()
   return name && STAGING_SHELLS.has(name) ? name : null
-}
-
-/** Any C0 byte or DEL: no quoter escapes them, so a line editor reads them as keys. */
-function hasControlByte(line: string): boolean {
-  for (let i = 0; i < line.length; i += 1) {
-    const code = line.charCodeAt(i)
-    if (code < 0x20 || code === 0x7f) {
-      return true
-    }
-  }
-  return false
 }
 
 function stripSubmitTerminator(command: string): string {
@@ -65,10 +50,7 @@ export function shouldStageStartupCommand(args: {
   if (args.platform === 'win32' || stagingShellName(args.shellPath) === null) {
     return false
   }
-  const body = stripSubmitTerminator(args.command)
-  return (
-    hasControlByte(body) || encoder.encode(body).byteLength > TYPED_STARTUP_COMMAND_BUDGET_BYTES
-  )
+  return !typedStartupLineFits(stripSubmitTerminator(args.command))
 }
 
 let staleSweepStarted = false

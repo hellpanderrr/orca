@@ -100,7 +100,11 @@ export function planSourceControlAgentActionLaunch(args: {
   let startupPlan: AgentStartupPlan | null = null
   let delivery: SourceControlLaunchPlanDelivery
 
-  if (args.promptDelivery === 'submit-after-ready') {
+  // Only an agent that takes no launch prompt waits for readiness; the rest carry it on argv.
+  if (
+    args.promptDelivery === 'submit-after-ready' &&
+    TUI_AGENT_CONFIG[agent].promptInjectionMode === 'stdin-after-start'
+  ) {
     startupPlan = buildAgentStartupPlan({
       agent,
       prompt: '',

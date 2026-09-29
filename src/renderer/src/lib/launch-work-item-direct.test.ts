@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AppState } from '@/store'
 import type * as TuiAgentSelectionModule from '../../../shared/tui-agent-selection'
 import type * as TuiAgentStartupModule from '@/lib/tui-agent-startup'
+import type * as PromptCarryModule from '../../../shared/startup-line-prompt-carry'
 import type * as DirectAgentRoutingModule from '@/lib/launch-work-item-direct-agent-routing'
 
 const mocks = vi.hoisted(() => ({
@@ -107,6 +108,16 @@ vi.mock('@/lib/tui-agent-startup', async () => {
   }
 })
 
+vi.mock('../../../shared/startup-line-prompt-carry', async () => {
+  const actual = await vi.importActual<typeof PromptCarryModule>(
+    '../../../shared/startup-line-prompt-carry'
+  )
+  return {
+    ...actual,
+    planStartupWithLaunchPrompt: vi.fn(actual.planStartupWithLaunchPrompt)
+  }
+})
+
 vi.mock('../../../shared/tui-agent-selection', async () => {
   const actual = await vi.importActual<typeof TuiAgentSelectionModule>(
     '../../../shared/tui-agent-selection'
@@ -132,6 +143,7 @@ import { pasteDraftWhenAgentReady } from '@/lib/agent-paste-draft'
 import { beginDirectWorkItemStructuredLaunch } from '@/lib/launch-work-item-direct-agent-routing'
 import { buildAgentDraftLaunchPlan, buildAgentStartupPlan } from '@/lib/tui-agent-startup'
 import { pickTuiAgent } from '../../../shared/tui-agent-selection'
+import { planStartupWithLaunchPrompt } from '../../../shared/startup-line-prompt-carry'
 
 const mockApi = {
   worktrees: {
@@ -537,16 +549,11 @@ describe('launchWorkItemDirect', () => {
     ).resolves.toBe(true)
 
     expect(buildAgentDraftLaunchPlan).not.toHaveBeenCalled()
-    expect(pasteDraftWhenAgentReady).toHaveBeenCalledWith(
-      expect.objectContaining({
-        tabId: 'tab-1',
-        content: 'Use this explicit user prompt.',
-        agent: 'claude',
-        submit: true,
-        forcePaste: true,
-        onTimeout: expect.any(Function)
-      })
-    )
+    // The explicit prompt is submitted by the launch line, never pasted into the running agent.
+    expect(pasteDraftWhenAgentReady).not.toHaveBeenCalled()
+    const startup = mocks.activateAndRevealWorktree.mock.calls.at(-1)?.[1]?.startup
+    expect(startup?.command).toContain('Use this explicit user prompt.')
+    expect(startup?.command).not.toContain('generated Linear source')
     expect(mocks.seedNativeChatLaunchPrompt).toHaveBeenCalledWith({
       tabId: 'tab-1',
       agent: 'claude',
@@ -830,11 +837,13 @@ describe('launchWorkItemDirect', () => {
       })
     ).resolves.toBe(true)
 
-    expect(buildAgentStartupPlan).toHaveBeenCalledWith(
+    expect(planStartupWithLaunchPrompt).toHaveBeenCalledWith(
       expect.objectContaining({
         agent: 'codex',
         platform: 'linux'
-      })
+      }),
+      'Fix the failing checks.',
+      { wsl: expect.any(Boolean) }
     )
   })
 })
