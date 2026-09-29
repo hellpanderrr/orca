@@ -6,8 +6,8 @@ import type { TerminalTargetShell } from './terminal-drop-shell'
 // *bracketed paste* of the file path — exactly how clipboard screenshot paste
 // already works in Orca (see terminal-clipboard-paste.ts + issue #2842).
 const IMAGE_DROP_EXTENSIONS = new Set(IMAGE_FILE_EXTENSIONS)
-const POSIX_RAW_IMAGE_DROP_UNSAFE_RE = /["'`$;&|<>(){}[\]*?!#\\]/
-const WINDOWS_RAW_IMAGE_DROP_UNSAFE_RE = /["'`$;&|<>(){}[\]*?!#^%]/
+const POSIX_IMAGE_DROP_ESCAPE_RE = /[ "'`$;&|<>(){}[\]*?!#\\]/g
+const WINDOWS_IMAGE_DROP_QUOTE_RE = /[ '`$;&|<>(){}[\]*?!#^%]/
 
 /**
  * Returns true when `path` looks like a local/remote image file based on its
@@ -27,13 +27,30 @@ export function isImageDropPath(path: string): boolean {
   return IMAGE_DROP_EXTENSIONS.has(path.slice(lastDot).toLowerCase())
 }
 
-export function canPasteImageDropPathRaw(path: string, targetShell: TerminalTargetShell): boolean {
+/**
+ * The text to bracketed-paste for a dropped image, or null when the path must
+ * be typed shell-escaped instead.
+ *
+ * Why: agent TUIs recognize attachments only in bracketed pastes and recover
+ * the path with shell-style unescaping. U+202F (macOS screenshot names) is
+ * not a separator for those parsers, so it remains literal.
+ */
+export function formatImageDropPathForBracketedPaste(
+  path: string,
+  targetShell: TerminalTargetShell
+): string | null {
   if (hasControlByte(path)) {
-    return false
+    return null
   }
-  const unsafeRe =
-    targetShell === 'windows' ? WINDOWS_RAW_IMAGE_DROP_UNSAFE_RE : POSIX_RAW_IMAGE_DROP_UNSAFE_RE
-  return !unsafeRe.test(path)
+  if (targetShell === 'windows') {
+    // Why: a double-quoted path cannot carry a literal quote; NTFS forbids one anyway.
+    if (path.includes('"')) {
+      return null
+    }
+    return WINDOWS_IMAGE_DROP_QUOTE_RE.test(path) ? `"${path}"` : path
+  }
+  // Why: keep the path outside quotes so agent parsers can unescape it.
+  return path.replace(POSIX_IMAGE_DROP_ESCAPE_RE, '\\$&')
 }
 
 function hasControlByte(path: string): boolean {

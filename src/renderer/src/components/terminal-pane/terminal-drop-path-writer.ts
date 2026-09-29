@@ -3,7 +3,7 @@ import { separateImagePasteFromFollowingText } from '../../../../shared/image-pa
 import { shellEscapePath } from './pane-helpers'
 import type { PtyTransport } from './pty-transport'
 import { wrapTerminalBracketedPasteText } from './terminal-bracketed-paste'
-import { canPasteImageDropPathRaw, isImageDropPath } from './terminal-drop-image-path'
+import { formatImageDropPathForBracketedPaste, isImageDropPath } from './terminal-drop-image-path'
 import {
   type CapturedTerminalDropTarget,
   getCurrentTerminalDropTransport
@@ -46,31 +46,29 @@ export async function writeTerminalDropPathsToCapturedTarget({
       return { sentAnyPath, targetCurrent: false, pathsWritten, failureReason: 'target-stale' }
     }
     // Why: image drops are attachment payloads for terminal TUIs, which detect
-    // them from a bracketed paste of the raw (un-escaped) path — mirroring the
-    // clipboard screenshot flow (terminal-clipboard-paste.ts, issue #2842).
-    // Shell-escaping would corrupt the file-existence check those tools run on
-    // the pasted path, so safe image paths bypass it. Unsafe image paths and
-    // non-image drops keep the original shell-escaped, space-separated
-    // behaviour for use in shell commands.
+    // them from a bracketed paste and recover the path with shell-style
+    // unescaping, mirroring the clipboard screenshot flow (issue #2842).
+    // Non-image drops (and control-byte names no paste can carry) keep the
+    // shell-escaped, space-separated behaviour for use in shell commands.
     //
     // Image payloads carry no trailing space of their own, so when an image is
     // immediately followed by a non-image path the two would otherwise collide
     // (`<bracketed-paste>/repo/a.ts`). Add a single separating space in that
     // case only — back-to-back image pastes are self-delimiting and a stray
     // space between them would land in the TUI input.
-    const pathIsRawPasteImage = isImageDropPath(path) && canPasteImageDropPathRaw(path, targetShell)
+    const imagePaste = formatImagePaste(path, targetShell)
     const nextPath = paths[index + 1]
-    const nextPathIsRawPasteImage =
+    const needsSeparatorAfterImage =
+      imagePaste !== null &&
       nextPath !== undefined &&
-      isImageDropPath(nextPath) &&
-      canPasteImageDropPathRaw(nextPath, targetShell)
-    const needsSeparatorAfterImage = nextPath !== undefined && !nextPathIsRawPasteImage
-    const payload = pathIsRawPasteImage
-      ? separateImagePasteFromFollowingText(
-          wrapTerminalBracketedPasteText(path),
-          needsSeparatorAfterImage
-        )
-      : `${shellEscapePath(path, targetShell)} `
+      formatImagePaste(nextPath, targetShell) === null
+    const payload =
+      imagePaste !== null
+        ? separateImagePasteFromFollowingText(
+            wrapTerminalBracketedPasteText(imagePaste),
+            needsSeparatorAfterImage
+          )
+        : `${shellEscapePath(path, targetShell)} `
     const writeResult = await runTerminalPasteOperationWithTimeout(
       () => writeTerminalPastePtyInput(liveTransport, payload, 'driving'),
       operationTimeoutMs
@@ -89,4 +87,8 @@ export async function writeTerminalDropPathsToCapturedTarget({
     targetCurrent: Boolean(getCurrentTerminalDropTransport(manager, paneTransports, dropTarget)),
     pathsWritten
   }
+}
+
+function formatImagePaste(path: string, targetShell: TerminalTargetShell): string | null {
+  return isImageDropPath(path) ? formatImageDropPathForBracketedPaste(path, targetShell) : null
 }

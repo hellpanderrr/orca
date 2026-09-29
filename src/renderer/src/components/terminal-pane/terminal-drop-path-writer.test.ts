@@ -52,7 +52,7 @@ describe('terminal drop path writer', () => {
     expect(sendInput).not.toHaveBeenCalled()
   })
 
-  it('writes dropped image paths as a bracketed paste of the raw path', async () => {
+  it('writes plain dropped image paths as a bracketed paste of the raw path', async () => {
     const sendInput = vi.fn(() => true)
     const sendInputAccepted = vi.fn(async () => true)
     const { manager, pane } = createManager()
@@ -62,17 +62,74 @@ describe('terminal drop path writer', () => {
       dropTarget: { paneId: pane.id, leafId: pane.leafId, ptyId: 'pty-1', transport } as never,
       manager: manager as never,
       paneTransports: new Map([[pane.id, transport]]) as never,
-      paths: ['/repo/My Screenshot.png'],
+      paths: ['/tmp/orca-paste-1-abc.png'],
       targetShell: 'posix'
     })
 
     expect(result).toEqual({ sentAnyPath: true, targetCurrent: true, pathsWritten: 1 })
     // Why: image attachment detection in terminal TUIs keys off bracketed paste
-    // of the literal path — no shell-escaping, no trailing space.
+    // of the path — no quoting, no trailing space.
     expect(sendInputAccepted).toHaveBeenCalledWith(
-      wrapTerminalBracketedPasteText('/repo/My Screenshot.png'),
+      wrapTerminalBracketedPasteText('/tmp/orca-paste-1-abc.png'),
       'driving'
     )
+  })
+
+  it('backslash-escapes spaces in a dropped image path inside the bracketed paste', async () => {
+    const sendInput = vi.fn(() => true)
+    const sendInputAccepted = vi.fn(async () => true)
+    const { manager, pane } = createManager()
+    const transport = createTransport(sendInput, 'pty-1', sendInputAccepted)
+
+    await writeTerminalDropPathsToCapturedTarget({
+      dropTarget: { paneId: pane.id, leafId: pane.leafId, ptyId: 'pty-1', transport } as never,
+      manager: manager as never,
+      paneTransports: new Map([[pane.id, transport]]) as never,
+      paths: ['/repo/Screenshot 2026-09-28 at 4.03.11\u202fPM.png'],
+      targetShell: 'posix'
+    })
+
+    expect(sendInputAccepted).toHaveBeenCalledWith(
+      wrapTerminalBracketedPasteText('/repo/Screenshot\\ 2026-09-28\\ at\\ 4.03.11\u202fPM.png'),
+      'driving'
+    )
+  })
+
+  it('double-quotes a spaced image path inside the bracketed paste on a windows shell', async () => {
+    const sendInput = vi.fn(() => true)
+    const sendInputAccepted = vi.fn(async () => true)
+    const { manager, pane } = createManager()
+    const transport = createTransport(sendInput, 'pty-1', sendInputAccepted)
+
+    await writeTerminalDropPathsToCapturedTarget({
+      dropTarget: { paneId: pane.id, leafId: pane.leafId, ptyId: 'pty-1', transport } as never,
+      manager: manager as never,
+      paneTransports: new Map([[pane.id, transport]]) as never,
+      paths: ['C:\\Users\\me\\My Pictures\\shot\u202fPM.png'],
+      targetShell: 'windows'
+    })
+
+    expect(sendInputAccepted).toHaveBeenCalledWith(
+      wrapTerminalBracketedPasteText('"C:\\Users\\me\\My Pictures\\shot\u202fPM.png"'),
+      'driving'
+    )
+  })
+
+  it('still types a control-byte image path shell-escaped', async () => {
+    const sendInput = vi.fn(() => true)
+    const sendInputAccepted = vi.fn(async () => true)
+    const { manager, pane } = createManager()
+    const transport = createTransport(sendInput, 'pty-1', sendInputAccepted)
+
+    await writeTerminalDropPathsToCapturedTarget({
+      dropTarget: { paneId: pane.id, leafId: pane.leafId, ptyId: 'pty-1', transport } as never,
+      manager: manager as never,
+      paneTransports: new Map([[pane.id, transport]]) as never,
+      paths: ['/repo/a\x1b[201~b.png'],
+      targetShell: 'posix'
+    })
+
+    expect(sendInputAccepted).toHaveBeenCalledWith("'/repo/a\x1b[201~b.png' ", 'driving')
   })
 
   it('keeps shell-escaped input for mixed image and non-image drops', async () => {
@@ -149,7 +206,7 @@ describe('terminal drop path writer', () => {
     )
   })
 
-  it('falls back to shell escaping for image paths with POSIX shell metacharacters', async () => {
+  it('escapes POSIX shell metacharacters in an image path inside the bracketed paste', async () => {
     const sendInput = vi.fn(() => true)
     const sendInputAccepted = vi.fn(async () => true)
     const { manager, pane } = createManager()
@@ -164,12 +221,12 @@ describe('terminal drop path writer', () => {
     })
 
     expect(sendInputAccepted).toHaveBeenCalledWith(
-      "'/repo/a.png; touch /tmp/pwned #.png' ",
+      wrapTerminalBracketedPasteText('/repo/a.png\\;\\ touch\\ /tmp/pwned\\ \\#.png'),
       'driving'
     )
   })
 
-  it('falls back to shell escaping for image paths with Windows shell metacharacters', async () => {
+  it('double-quotes Windows shell metacharacters in an image path inside the bracketed paste', async () => {
     const sendInput = vi.fn(() => true)
     const sendInputAccepted = vi.fn(async () => true)
     const { manager, pane } = createManager()
@@ -183,10 +240,13 @@ describe('terminal drop path writer', () => {
       targetShell: 'windows'
     })
 
-    expect(sendInputAccepted).toHaveBeenCalledWith('"C:\\Users\\me\\Pictures\\a&b.png" ', 'driving')
+    expect(sendInputAccepted).toHaveBeenCalledWith(
+      wrapTerminalBracketedPasteText('"C:\\Users\\me\\Pictures\\a&b.png"'),
+      'driving'
+    )
   })
 
-  it('separates an image paste from a following image path that must be shell escaped', async () => {
+  it('separates an image paste from a following image path that must be typed', async () => {
     const sendInput = vi.fn(() => true)
     const sendInputAccepted = vi.fn(async () => true)
     const { manager, pane } = createManager()
@@ -196,7 +256,7 @@ describe('terminal drop path writer', () => {
       dropTarget: { paneId: pane.id, leafId: pane.leafId, ptyId: 'pty-1', transport } as never,
       manager: manager as never,
       paneTransports: new Map([[pane.id, transport]]) as never,
-      paths: ['/repo/shot.png', '/repo/a.png; touch /tmp/pwned #.png'],
+      paths: ['/repo/shot.png', '/repo/a\x07b.png'],
       targetShell: 'posix'
     })
 
@@ -205,11 +265,7 @@ describe('terminal drop path writer', () => {
       `${wrapTerminalBracketedPasteText('/repo/shot.png')} `,
       'driving'
     )
-    expect(sendInputAccepted).toHaveBeenNthCalledWith(
-      2,
-      "'/repo/a.png; touch /tmp/pwned #.png' ",
-      'driving'
-    )
+    expect(sendInputAccepted).toHaveBeenNthCalledWith(2, "'/repo/a\x07b.png' ", 'driving')
   })
 
   it('times out dropped path writes that never receive PTY acknowledgement', async () => {
