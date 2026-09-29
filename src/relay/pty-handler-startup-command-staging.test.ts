@@ -34,6 +34,7 @@ vi.mock('../main/shell-prompt-readiness-probe', () => ({
 
 import type { PtyHandler } from './pty-handler'
 import { beginPtyHandlerTest, endPtyHandlerTest } from './pty-handler-test-harness'
+import { buildLaunchFilePointer, planLaunchPrompt } from '../shared/launch-prompt-file'
 import type { MockDispatcher } from './pty-handler-test-harness'
 
 const describePosix = process.platform === 'win32' ? describe.skip : describe
@@ -61,17 +62,17 @@ describePosix('relay startup command staging', () => {
     rmSync(stagingDir, { recursive: true, force: true })
   })
 
-  async function spawn(command: string): Promise<{ startupDelivery?: unknown }> {
-    return (await dispatcher.callRequest('pty.spawn', {
+  async function spawn(command: string): Promise<unknown> {
+    return await dispatcher.callRequest('pty.spawn', {
       command,
       commandDelivery: 'provider',
       env: { SHELL: '/bin/zsh' }
-    })) as { startupDelivery?: unknown }
+    })
   }
 
   it('types a short provider-delivered command and reports it typed', async () => {
     const reply = await spawn('echo short')
-    expect(reply.startupDelivery).toEqual({ line: 'typed' })
+    expect(reply).toMatchObject({ startupDelivery: { line: 'typed' } })
     await vi.advanceTimersByTimeAsync(50)
     expect(mockPtySpawn.mock.results[0]?.value.write).toHaveBeenCalledWith('echo short\n')
   })
@@ -79,7 +80,7 @@ describePosix('relay startup command staging', () => {
   it('stages a long provider-delivered command and types only the sourcing line', async () => {
     const command = `claude '${'x'.repeat(600)}'`
     const reply = await spawn(command)
-    expect(reply.startupDelivery).toEqual({ line: 'staged' })
+    expect(reply).toMatchObject({ startupDelivery: { line: 'staged' } })
     const [script] = readdirSync(stagingDir)
     const scriptPath = join(stagingDir, script)
     expect(readFileSync(scriptPath, 'utf8').split('\n')[1]).toBe(command)
@@ -90,19 +91,38 @@ describePosix('relay startup command staging', () => {
   it('deletes a script the shell never sourced when the PTY exits', async () => {
     await spawn(`claude '${'x'.repeat(600)}'`)
     const scriptPath = join(stagingDir, readdirSync(stagingDir)[0])
-    const onExit = mockPtyInstance.onExit.mock.calls.at(-1)?.[0] as (e: {
-      exitCode: number
-    }) => void
-    onExit({ exitCode: 0 })
+    mockPtyInstance.onExit.mock.calls.at(-1)?.[0]?.({ exitCode: 0 })
     expect(existsSync(scriptPath)).toBe(false)
   })
 
   it('reports nothing for a renderer-delivered command it only holds as a hint', async () => {
-    const reply = (await dispatcher.callRequest('pty.spawn', {
+    const reply = await dispatcher.callRequest('pty.spawn', {
       command: `claude '${'x'.repeat(600)}'`,
       env: { SHELL: '/bin/zsh' }
-    })) as { startupDelivery?: unknown }
-    expect(reply.startupDelivery).toBeUndefined()
+    })
+    expect(reply).not.toHaveProperty('startupDelivery')
     expect(readdirSync(stagingDir)).toEqual([])
+  })
+
+  it('writes a launch file before typing the line that names it, and removes it on exit', async () => {
+    const { prompt, launchFile } = planLaunchPrompt('secret brief', { sensitive: true })
+    await dispatcher.callRequest('pty.spawn', {
+      command: `claude '${prompt}'`,
+      commandDelivery: 'provider',
+      launchFile,
+      env: { SHELL: '/bin/zsh', ORCA_BRIEF: prompt }
+    })
+    const [launchDir] = readdirSync(stagingDir)
+    const path = join(stagingDir, launchDir, 'task-context.md')
+    expect(readFileSync(path, 'utf8')).toBe('secret brief')
+    expect(mockPtySpawn.mock.calls[0]?.[2]?.env).toMatchObject({
+      ORCA_BRIEF: buildLaunchFilePointer(path)
+    })
+    await vi.advanceTimersByTimeAsync(50)
+    expect(mockPtySpawn.mock.results[0]?.value.write).toHaveBeenCalledWith(
+      `claude '${buildLaunchFilePointer(path)}'\n`
+    )
+    mockPtyInstance.onExit.mock.calls.at(-1)?.[0]?.({ exitCode: 0 })
+    expect(existsSync(join(stagingDir, launchDir))).toBe(false)
   })
 })

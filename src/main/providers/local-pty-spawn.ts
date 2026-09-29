@@ -21,6 +21,13 @@ import { loadLocalPtyRuntimeSpawn } from './local-pty-runtime-spawn'
 import { destroyPtyProcess } from './local-pty-termination'
 import { updateHistoryEnvForFallback } from '../terminal-history'
 import type { PtySpawnOptions, PtySpawnResult } from './types'
+import {
+  LaunchFileUnavailableError,
+  removeLaunchFile,
+  writeLaunchFile,
+  type WrittenLaunchFile
+} from '../../shared/launch-file-writing'
+import { isWslUncPath } from '../../shared/wsl-paths'
 
 export async function spawnLocalPty(
   args: PtySpawnOptions,
@@ -40,6 +47,38 @@ export async function spawnLocalPty(
   if (args.attachOnly) {
     throw new SessionNotFoundError(args.sessionId ?? '')
   }
+  const launchFile = writeLocalLaunchFile(args)
+  if (launchFile) {
+    args = { ...args, command: launchFile.command, env: launchFile.env }
+  }
+  try {
+    return await spawnFreshLocalPty(args, getOptions, reattachId, launchFile)
+  } catch (error) {
+    removeLaunchFile(launchFile)
+    throw error
+  }
+}
+
+function writeLocalLaunchFile(args: PtySpawnOptions): WrittenLaunchFile | undefined {
+  if (!args.launchFile) {
+    return undefined
+  }
+  const wsl =
+    process.platform === 'win32' &&
+    (args.shellOverride?.toLowerCase() === 'wsl.exe' || isWslUncPath(args.cwd ?? ''))
+  if (wsl) {
+    // Why: an agent inside the distro cannot read a path in the Windows temp directory.
+    throw new LaunchFileUnavailableError('not supported for WSL sessions')
+  }
+  return writeLaunchFile({ launchFile: args.launchFile, command: args.command, env: args.env })
+}
+
+async function spawnFreshLocalPty(
+  args: PtySpawnOptions,
+  getOptions: () => LocalPtyProviderOptions,
+  reattachId: string | null,
+  launchFile: WrittenLaunchFile | undefined
+): Promise<PtySpawnResult> {
   const id = allocatePtyId(reattachId ?? undefined)
   return runCancelableLocalPtySpawn(id, async (throwIfCanceled, cancellation) => {
     const incarnationId = randomUUID()
@@ -141,7 +180,8 @@ export async function spawnLocalPty(
         env: finalEnv,
         proc,
         reportsChildExitStatus: spawnResult.reportsChildExitStatus !== false,
-        spawnedWslDistro
+        spawnedWslDistro,
+        launchFile
       })
     })
   })

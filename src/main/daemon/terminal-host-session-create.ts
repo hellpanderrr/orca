@@ -5,6 +5,12 @@ import {
   type StartupCommandStaging
 } from '../../shared/startup-command-staging'
 import { resolvePtyOwnerBackend } from '../../shared/pty-owner-backend'
+import {
+  LaunchFileUnavailableError,
+  removeLaunchFile,
+  writeLaunchFile,
+  type WrittenLaunchFile
+} from '../../shared/launch-file-writing'
 import { getDaemonSessionResultMetadata } from './daemon-create-or-attach-result'
 import { enumerateDirectoryOnce } from './directory-enumeration-probe'
 import { normalizePtySize } from './daemon-pty-size'
@@ -118,23 +124,31 @@ async function spawnAndPublishSession(
   // Why before the fork: the shell's own cwd may already have fallen back, so probe the requested path.
   const cwdReadableByDaemon =
     opts.cwd && !wslDistro ? await isCwdReadableByThisProcess(opts.cwd) : null
-  const subprocess = await deps.spawnSubprocess({
-    sessionId: opts.sessionId,
-    cols: size.cols,
-    rows: size.rows,
-    cwd: opts.cwd,
-    env: opts.env,
-    envToDelete: opts.envToDelete,
-    command: opts.command,
-    startupCommandDelivery: opts.startupCommandDelivery,
-    ...(opts.launchAgent ? { launchAgent: opts.launchAgent } : {}),
-    shellOverride: opts.shellOverride,
-    terminalShellArgs: opts.terminalShellArgs,
-    terminalWindowsWslDistro: opts.terminalWindowsWslDistro,
-    terminalWindowsPowerShellImplementation: opts.terminalWindowsPowerShellImplementation,
-    isCanceled: opts.isCanceled,
-    ...(opts.cancelSignal ? { cancelSignal: opts.cancelSignal } : {})
-  })
+  const launchFile = writeSessionLaunchFile(opts, wslDistro)
+  const command = launchFile?.command ?? opts.command
+  let subprocess: Awaited<ReturnType<typeof deps.spawnSubprocess>>
+  try {
+    subprocess = await deps.spawnSubprocess({
+      sessionId: opts.sessionId,
+      cols: size.cols,
+      rows: size.rows,
+      cwd: opts.cwd,
+      env: launchFile?.env ?? opts.env,
+      envToDelete: opts.envToDelete,
+      command,
+      startupCommandDelivery: opts.startupCommandDelivery,
+      ...(opts.launchAgent ? { launchAgent: opts.launchAgent } : {}),
+      shellOverride: opts.shellOverride,
+      terminalShellArgs: opts.terminalShellArgs,
+      terminalWindowsWslDistro: opts.terminalWindowsWslDistro,
+      terminalWindowsPowerShellImplementation: opts.terminalWindowsPowerShellImplementation,
+      isCanceled: opts.isCanceled,
+      ...(opts.cancelSignal ? { cancelSignal: opts.cancelSignal } : {})
+    })
+  } catch (error) {
+    removeLaunchFile(launchFile)
+    throw error
+  }
 
   let staging: StartupCommandStaging | undefined
   // Why: a fallback shell does not emit the preferred shell's ready marker;
@@ -163,7 +177,10 @@ async function spawnAndPublishSession(
       deps.onSessionExit,
       opts.sessionId,
       opts.agentSessionGeneration,
-      () => discardStagedStartupCommand(staging)
+      () => {
+        discardStagedStartupCommand(staging)
+        removeLaunchFile(launchFile)
+      }
     ),
     ...(deps.reportReadinessEvent ? { reportReadinessEvent: deps.reportReadinessEvent } : {}),
     ...(opts.shellReadyTimeoutMs !== undefined
@@ -175,6 +192,7 @@ async function spawnAndPublishSession(
     // Retain cleanup ownership if the native child refuses to exit.
     deps.sessions.set(opts.sessionId, session)
     await session.forceKillAndDisposeSubprocess()
+    removeLaunchFile(launchFile)
     if (deps.sessions.get(opts.sessionId) === session) {
       session.dispose()
       deps.sessions.delete(opts.sessionId)
@@ -187,24 +205,23 @@ async function spawnAndPublishSession(
   deps.onSessionCreated(opts.sessionId, opts.agentSessionGeneration, session.isAlive)
   const token = session.attachClient(opts.streamClient)
 
-  const startupCommandWritten =
-    Boolean(opts.command) && !subprocess.startupCommandDeliveredInShellArgs
+  const startupCommandWritten = Boolean(command) && !subprocess.startupCommandDeliveredInShellArgs
   // Why: without this, a missing command and a lost one log identically.
   // Length, never the text -- launches can carry credentials.
   try {
     deps.reportReadinessEvent?.('startup-command-delivery', {
       sessionId: opts.sessionId,
       written: startupCommandWritten,
-      hasCommand: Boolean(opts.command),
-      commandLength: opts.command?.length ?? 0,
+      hasCommand: Boolean(command),
+      commandLength: command?.length ?? 0,
       viaShellArgs: subprocess.startupCommandDeliveredInShellArgs === true,
       queuedByShellReadyBarrier: shellReadySupported
     })
   } catch {
     // Diagnostics must never turn a live PTY into a failed create.
   }
-  if (startupCommandWritten && opts.command) {
-    staging = stageStartupCommand({ command: opts.command, shellPath: subprocess.shellPath })
+  if (startupCommandWritten && command) {
+    staging = stageStartupCommand({ command, shellPath: subprocess.shellPath })
     if (staging.failure) {
       deps.reportReadinessEvent?.('startup-command-stage-failed', {
         sessionId: opts.sessionId,
@@ -232,6 +249,20 @@ async function spawnAndPublishSession(
     ...(staging ? { startupDelivery: { line: staging.delivery } } : {}),
     attachToken: token
   }
+}
+
+function writeSessionLaunchFile(
+  opts: InternalCreateOrAttachOptions,
+  wslDistro: string | undefined
+): WrittenLaunchFile | undefined {
+  if (!opts.launchFile) {
+    return undefined
+  }
+  if (wslDistro) {
+    // Why: an agent inside the distro cannot read a path in the Windows temp directory.
+    throw new LaunchFileUnavailableError('not supported for WSL sessions')
+  }
+  return writeLaunchFile({ launchFile: opts.launchFile, command: opts.command, env: opts.env })
 }
 
 function createSessionExitHandler(

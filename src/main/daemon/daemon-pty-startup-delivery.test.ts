@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mkdirSync, readdirSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import * as localPtyUtils from '../providers/local-pty-utils'
 import {
@@ -9,6 +9,7 @@ import {
   type DaemonAdapterHarness,
   type SpawnSubprocess
 } from './daemon-pty-adapter-test-harness'
+import { buildLaunchFilePointer, planLaunchPrompt } from '../../shared/launch-prompt-file'
 
 const itOnPosix = process.platform === 'win32' ? it.skip : it
 
@@ -131,6 +132,37 @@ describe('DaemonPtyAdapter startup delivery', () => {
       expect(lastSubprocess.write).toHaveBeenCalledExactlyOnceWith(
         `. '${join(stagingDir, script)}'\n`
       )
+    } finally {
+      process.env.TMPDIR = originalTmpdir
+    }
+  })
+
+  itOnPosix('writes a launch file before typing the line that names it', async () => {
+    const stagingDir = join(dir, 'tmp')
+    mkdirSync(stagingDir)
+    const originalTmpdir = process.env.TMPDIR
+    process.env.TMPDIR = stagingDir
+    nextShellPath = '/bin/zsh'
+    try {
+      const { prompt, launchFile } = planLaunchPrompt('secret brief', { sensitive: true })
+      await adapter.spawn({
+        cols: 80,
+        rows: 24,
+        command: `claude '${prompt}'`,
+        launchFile,
+        env: { SHELL: '/bin/zsh' }
+      })
+      const launchDir = readdirSync(stagingDir).find((name) => name.startsWith('orca-launch-file-'))
+      const path = join(stagingDir, launchDir ?? '', 'task-context.md')
+      expect(readFileSync(path, 'utf8')).toBe('secret brief')
+      expect(lastSpawnOpts?.command).toBe(`claude '${buildLaunchFilePointer(path)}'`)
+      lastSubprocess._simulateData('\x1b]777;orca-shell-ready\x07\r\nuser@host $ ')
+      await waitFor(() => vi.mocked(lastSubprocess.write).mock.calls.length > 0)
+      expect(lastSubprocess.write).toHaveBeenCalledExactlyOnceWith(
+        `claude '${buildLaunchFilePointer(path)}'\n`
+      )
+      lastSubprocess._simulateExit(0)
+      await waitFor(() => !existsSync(path))
     } finally {
       process.env.TMPDIR = originalTmpdir
     }

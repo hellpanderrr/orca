@@ -13,6 +13,7 @@ import type { PtyProcessInfo } from './pty-process-info'
 import type { TerminalExitCause } from '../../shared/terminal-exit-cause'
 import type { TerminalOwner } from '../../shared/terminal-owner'
 import type { WriteSettlement } from '../../shared/pty-write-settlement'
+import type { LaunchFile } from '../../shared/launch-prompt-file'
 
 export type {
   PtyBackgroundStreamEvent,
@@ -56,6 +57,9 @@ export type PtySpawnOptions = {
   command?: string
   commandDelivery?: 'renderer' | 'provider'
   startupCommandDelivery?: StartupCommandDelivery
+  /** Written by the host before it types `command`, which names it by placeholder. Fresh
+   *  spawns whose host types the command only; over SSH that means provider delivery. */
+  launchFile?: LaunchFile
   /** Minimal allowlisted launch ownership preserved by daemon reattach. */
   launchAgent?: TuiAgent
   /** Orca worktree identity. When present, the local provider scopes shell
