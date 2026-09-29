@@ -39,13 +39,20 @@ describe('isImageDropPath', () => {
 
 // Why: small replays of how agents recover a path from pasted text, so the
 // escaping is checked against what they actually accept.
-// Claude Code: strip one pair of surrounding quotes, then unescape backslashes.
-function claudeCodeRecoverPath(pasted: string): string {
-  return pasted.replace(/^(['"])(.*)\1$/s, '$2').replace(/\\(.)/gs, '$1')
+// Claude Code: strip one pair of surrounding quotes, then unescape backslashes
+// except on win32, where backslashes are separators.
+function claudeCodeRecoverPath(pasted: string, platform: 'posix' | 'win32'): string {
+  const unquoted = pasted.replace(/^(['"])(.*)\1$/s, '$2')
+  return platform === 'win32' ? unquoted : unquoted.replace(/\\(.)/gs, '$1')
 }
 
-// Codex: `normalize_pasted_path` keeps the paste only when POSIX shlex yields one token.
+// Codex `normalize_pasted_path`: drive/UNC paths skip shlex once one outer quote
+// pair is stripped; anything else must be a single POSIX shlex token.
 function codexRecoverPath(pasted: string): string | null {
+  const unquoted = pasted.trim().replace(/^(['"])(.*)\1$/s, '$2')
+  if (/^([a-z]:[\\/]|\\\\)/i.test(unquoted)) {
+    return unquoted
+  }
   const tokens: string[] = []
   let current: string | null = null
   let quote: "'" | '"' | null = null
@@ -134,27 +141,22 @@ describe('formatImageDropPathForBracketedPaste', () => {
     if (pasted === null) {
       throw new Error(`Expected a bracketed-paste representation for ${path}`)
     }
-    expect(claudeCodeRecoverPath(pasted)).toBe(path)
+    expect(claudeCodeRecoverPath(pasted, 'posix')).toBe(path)
     expect(codexRecoverPath(pasted)).toBe(path)
   })
 
-  it('round-trips a quoted windows path through Claude Code unescaping', () => {
-    const path = 'C:\\Users\\me\\My Pictures\\shot.png'
-    const pasted = formatImageDropPathForBracketedPaste(path, 'windows')
-    expect(pasted).toBe(`"${path}"`)
-    // Why: Claude Code only strips the quotes here; windows backslashes are separators.
-    if (pasted === null) {
-      throw new Error(`Expected a bracketed-paste representation for ${path}`)
-    }
-    expect(pasted.replace(/^(['"])(.*)\1$/s, '$2')).toBe(path)
-  })
-
-  it('round-trips a quoted windows path through Codex unescaping', () => {
-    const path = 'C:\\Users\\me\\My Pictures\\shot 100%.png'
+  it.each([
+    'C:\\Users\\me\\My Pictures\\shot 100%.png',
+    'C:\\$photos\\shot.png',
+    'C:\\p\\`tick`\\shot.png',
+    '\\\\server\\share\\My Pics\\shot.png',
+    'C:\\Temp\\plain.png'
+  ])('round-trips windows path %s through Claude Code and Codex', (path) => {
     const pasted = formatImageDropPathForBracketedPaste(path, 'windows')
     if (pasted === null) {
       throw new Error(`Expected a bracketed-paste representation for ${path}`)
     }
+    expect(claudeCodeRecoverPath(pasted, 'win32')).toBe(path)
     expect(codexRecoverPath(pasted)).toBe(path)
   })
 
