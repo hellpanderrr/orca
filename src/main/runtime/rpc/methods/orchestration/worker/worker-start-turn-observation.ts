@@ -1,6 +1,8 @@
 import { AGENT_PROMPT_EFFECT_TIMEOUT_MS } from '../../../../../../shared/orchestration-timing-budgets'
 import type { RuntimeTerminalPromptDelivery } from '../../../../../../shared/runtime-terminal-contracts'
 import type { OrcaRuntimeService } from '../../../../orca-runtime'
+import type { TuiAgent } from '../../../../../../shared/tui-agent'
+import { describeTerminalWaitBlockedReason } from '../../../../../../shared/terminal-wait-blocked-reason-legacy-alias'
 
 /**
  * Turn-start verdict for a dispatched worker prompt, in the execution-boundary vocabulary:
@@ -85,4 +87,58 @@ export function describeUnobservedWorkerTurnStart(agent: string | null): string 
     'network), or may be holding the task unsent in its composer. If the worker recovers and ' +
     'reports, this Dispatch settles normally.'
   )
+}
+
+/**
+ * Turn-start verdict for a worker whose brief rode its launch command line. Only a hook turn that
+ * carried an explicit prompt after the spawn counts; a startup dialog that blocks the agent still
+ * fails the start, the way the readiness wait reported it before a paste.
+ */
+export async function observeWorkerLaunchTurnStart(args: {
+  runtime: OrcaRuntimeService
+  terminalHandle: string
+  agent: TuiAgent | null
+  launchStartedAt: number
+  timeoutMs: number
+}): Promise<WorkerTurnStartObservation> {
+  const { runtime, terminalHandle, timeoutMs } = args
+  const controller = new AbortController()
+  const observed = runtime
+    .observeTerminalLaunchTurnStart(
+      terminalHandle,
+      { launchStartedAt: args.launchStartedAt, agent: args.agent },
+      timeoutMs,
+      controller.signal
+    )
+    .catch((): WorkerTurnStartVerdict => 'unobserved')
+  const blocked = runtime
+    .waitForTerminal(terminalHandle, {
+      condition: 'tui-idle',
+      timeoutMs,
+      signal: controller.signal
+    })
+    .then(
+      (wait) => wait.blockedReason ?? null,
+      () => null
+    )
+  try {
+    const first = await Promise.race([
+      observed.then((verdict) => ({ verdict, blockedReason: null })),
+      blocked.then((blockedReason) => ({ verdict: null, blockedReason }))
+    ])
+    const verdict = first.verdict ?? (first.blockedReason ? null : await observed)
+    // Why: a dialog already on screen outranks any verdict short of an observed turn.
+    const blockedReason =
+      first.blockedReason ?? (verdict === 'observed' ? null : await settledOrNull(blocked))
+    if (blockedReason) {
+      throw new Error(`Agent startup blocked: ${describeTerminalWaitBlockedReason(blockedReason)}`)
+    }
+    return { verdict: verdict ?? 'unobserved' }
+  } finally {
+    controller.abort()
+  }
+}
+
+async function settledOrNull<T>(promise: Promise<T | null>): Promise<T | null> {
+  return await Promise.race([promise, Promise.resolve(null)])
 }

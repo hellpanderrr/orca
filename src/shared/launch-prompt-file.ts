@@ -31,14 +31,20 @@ export function planLaunchPrompt(
   options: { sensitive?: boolean } = {}
 ): { prompt: string; launchFile?: LaunchFile } {
   const sensitive = options.sensitive === true
-  if (!sensitive && prompt.length <= MAX_INLINE_LAUNCH_PROMPT_CHARS) {
-    return { prompt }
-  }
+  return sensitive || prompt.length > MAX_INLINE_LAUNCH_PROMPT_CHARS
+    ? carryInLaunchFile(prompt, sensitive)
+    : { prompt }
+}
+
+export function carryInLaunchFile(
+  content: string,
+  sensitive: boolean
+): { prompt: string; launchFile: LaunchFile } {
   const bytes = crypto.getRandomValues(new Uint8Array(16))
   const placeholder = `orca-launch-file-${Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')}`
   return {
     prompt: buildLaunchFilePointer(placeholder),
-    launchFile: { placeholder, content: prompt, sensitive }
+    launchFile: { placeholder, content, sensitive }
   }
 }
 

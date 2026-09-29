@@ -5,9 +5,8 @@ describe('composer-marker first dispatch readiness', () => {
   const h = createOrchestrationWorkerReleaseHarness()
   afterEach(() => h.cleanup())
 
-  // DSH's idle hook fires only after a turn, and Grok's only other signal is its bare name, which a
-  // shell auto-title also writes; like ZCode, their captured composer is their readiness.
-  it.each(['zcode', 'dsh', 'grok'] as const)(
+  // DSH's idle hook fires only after a turn; like ZCode, its captured composer is its readiness.
+  it.each(['zcode', 'dsh'] as const)(
     'waits for %s’s new composer before delivering exactly one dispatch',
     async (agent) => {
       h.setup()
@@ -29,6 +28,18 @@ describe('composer-marker first dispatch readiness', () => {
       expect(h.runtime.sendTerminalAgentPrompt).toHaveBeenCalledOnce()
     }
   )
+
+  it('starts Grok with its brief on the launch line instead of waiting for its composer', async () => {
+    h.setup()
+    vi.spyOn(h.runtime, 'waitForFreshWorkerComposer')
+    await h.startWorker({ agent: 'grok' })
+    expect(h.runtime.waitForFreshWorkerComposer).not.toHaveBeenCalled()
+    expect(h.runtime.sendTerminalAgentPrompt).not.toHaveBeenCalled()
+    expect(vi.mocked(h.runtime.createTerminal).mock.calls[0]?.[1]).toMatchObject({
+      startupAgent: 'grok',
+      launchFile: expect.objectContaining({ sensitive: true })
+    })
+  })
 
   it('keeps reused terminals on the normal idle wait', async () => {
     h.setup()

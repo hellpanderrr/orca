@@ -1,4 +1,6 @@
+import type { OrcaRuntimeService } from '../../../../orca-runtime'
 import type { OrchestrationDb } from '../../../../orchestration/db'
+import { awaitStructuredWorkerSetupGate } from './worker-start-structured-setup-gate'
 import {
   applyWaitForSetupOutcome,
   type WorkerEffect,
@@ -17,7 +19,8 @@ type WorkerSetupStageArgs = {
   db: OrchestrationDb
   dispatchId: string
   worktreeId: string
-  terminalHandle: string
+  /** Absent while a created worktree's agent terminal waits on setup. */
+  terminalHandle?: string
   setup: WorkerSetupReceipt
   effects: WorkerEffect[]
 }
@@ -66,4 +69,48 @@ export function persistWorkerSetupWaitOutcome(
     effects: args.effects,
     residualResources: residualWorkerEffects(args.effects)
   })
+}
+
+/**
+ * Holds a created worktree's agent terminal until its wait-for-setup gate settles. Agent-first
+ * creation sequences the launch line behind setup in the shell; a worker whose brief rides that
+ * line creates its terminal afterwards, so it has to wait here instead.
+ */
+export function createSetupBeforeAgentGate(args: {
+  runtime: Pick<OrcaRuntimeService, 'waitForSetupTerminalCompletion'>
+  db: OrchestrationDb
+  dispatchId: string
+  effects: WorkerEffect[]
+  timeoutMs: number
+  onStage: (stage: string) => void
+  /** A failed gate throws before placement returns, so the failure receipt needs this copy. */
+  onSetupReceipt: (setup: WorkerSetupReceipt) => void
+}): (worktreeId: string, setup: WorkerSetupReceipt) => Promise<void> {
+  return async (worktreeId, setup) => {
+    args.onSetupReceipt(setup)
+    const setupStage = {
+      db: args.db,
+      dispatchId: args.dispatchId,
+      worktreeId,
+      setup,
+      effects: args.effects
+    }
+    if (persistGatedSetupSpawnFailure(setupStage)) {
+      args.onStage('setup_start')
+      throw new Error('Setup terminal failed to start before the gated agent launch.')
+    }
+    args.onStage('setup_wait')
+    const wait = await awaitStructuredWorkerSetupGate({
+      runtime: args.runtime,
+      setup,
+      effects: args.effects,
+      timeoutMs: args.timeoutMs
+    })
+    if (wait) {
+      persistWorkerSetupWaitOutcome({ ...setupStage, wait })
+      if (!wait.satisfied) {
+        throw new Error(`Setup did not finish before the worker's agent started (${wait.status}).`)
+      }
+    }
+  }
 }

@@ -135,6 +135,7 @@ export class OrcaRuntimeWithCreateTerminal extends OrcaRuntimeWithTerminalCreate
             launchAgent: launchOpts.launchAgent,
             commandDelivery: 'provider',
             startupCommandDelivery: launchOpts.startupCommandDelivery,
+            ...(launchOpts.launchFile ? { launchFile: launchOpts.launchFile } : {}),
             env,
             envToDelete: dependencies.mergeTerminalEnvDeletionKeys(
               launchOpts.envToDelete,

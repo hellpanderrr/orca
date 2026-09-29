@@ -13,6 +13,7 @@ import type {
   RuntimeTerminalWaitCondition
 } from '../../shared/runtime-types'
 import type { TuiAgent } from '../../shared/tui-agent'
+import type { LaunchFile } from '../../shared/launch-prompt-file'
 import type { WorktreeStartupLaunch } from '../../shared/worktree/launch-types'
 import type { RuntimeTerminalSend } from '../../shared/runtime-terminal-contracts'
 import type { RuntimeTerminalWriteOptions } from './runtime-terminal-writer'
@@ -52,6 +53,9 @@ export type TerminalCreateOptions = {
   startupPrompt?: string
   /** Main-internal: whether `startupPrompt` rode the launch command. Called once the plan is built. */
   onStartupPromptCarry?: (carried: boolean) => void
+  /** Written by the execution host before the launch line naming it is typed (`startupPrompt`
+   *  carries its pointer). */
+  launchFile?: LaunchFile
   /**
    * Replaces the Settings launch arguments for this `startupAgent` only; `null` means none at all.
    *

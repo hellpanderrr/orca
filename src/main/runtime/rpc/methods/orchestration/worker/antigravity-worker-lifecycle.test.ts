@@ -1,44 +1,44 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { RuntimeTerminalWait } from '../../../../../../shared/runtime-types'
 import { reconcileRequestedWorkerTerminalReleases } from '../../../../orchestration/worker-terminal-release-reconciliation'
 import { createOrchestrationWorkerReleaseHarness } from './worker-release.test-support'
-
-const READY_WAIT = {
-  handle: 'term_worker',
-  condition: 'tui-idle',
-  satisfied: true,
-  status: 'running',
-  exitCode: null
-} satisfies RuntimeTerminalWait
 
 describe('Antigravity orchestration worker lifecycle', () => {
   const h = createOrchestrationWorkerReleaseHarness()
 
   afterEach(() => h.cleanup())
 
-  it('owns the terminal immediately and delays prompt delivery until AGY is ready', async () => {
+  it('owns the terminal immediately and settles only once AGY starts its launch turn', async () => {
     h.setup()
-    const readiness = h.deferred<RuntimeTerminalWait>()
-    vi.spyOn(h.runtime, 'waitForTerminal').mockReturnValue(readiness.promise)
+    const turnStart = h.deferred<'observed'>()
+    vi.spyOn(h.runtime, 'observeTerminalLaunchTurnStart').mockReturnValue(turnStart.promise)
 
     const pending = h.startWorker({ agent: 'antigravity' })
-    await vi.waitFor(() => expect(h.runtime.waitForTerminal).toHaveBeenCalled())
+    const onSettled = vi.fn()
+    void pending.then(onSettled, onSettled)
+    await vi.waitFor(() => expect(h.runtime.observeTerminalLaunchTurnStart).toHaveBeenCalled())
 
+    // AGY takes its prompt as a launch flag, so the brief rides the launch line, never a paste.
     expect(h.runtime.createTerminal).toHaveBeenCalledWith(
       'id:repo::worktree',
-      expect.objectContaining({ startupAgent: 'antigravity', surfaceOwner: false })
+      expect.objectContaining({
+        startupAgent: 'antigravity',
+        surfaceOwner: false,
+        preAllocatedHandle: 'term_worker',
+        startupPrompt: expect.any(String),
+        launchFile: expect.objectContaining({ sensitive: true })
+      })
     )
-    expect(h.runtime.sendTerminalAgentPrompt).not.toHaveBeenCalled()
     expect(h.db.listWorkerTerminalResources({})[0]?.resource).toMatchObject({
       ownership_state: 'owned',
       terminal_handle: 'term_worker'
     })
 
-    readiness.resolve(READY_WAIT)
+    expect(onSettled).not.toHaveBeenCalled()
+    turnStart.resolve('observed')
     await expect(pending).resolves.toEqual(
       expect.objectContaining({ dispatchId: expect.any(String) })
     )
-    expect(h.runtime.sendTerminalAgentPrompt).toHaveBeenCalledTimes(1)
+    expect(h.runtime.sendTerminalAgentPrompt).not.toHaveBeenCalled()
   })
 
   it('stops only the owned AGY terminal', async () => {
