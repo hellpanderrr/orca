@@ -3,7 +3,8 @@
 
 import type {
   AgentJournalItemBody,
-  AgentJournalItemIdentity
+  AgentJournalItemIdentity,
+  AgentJournalTurnScope
 } from '../../shared/agent-session-journal-types'
 import { subagentGroupFallbackText } from '../../shared/native-chat-subagent-summary'
 import type { NativeChatSubagentEntry } from '../../shared/native-chat-types'
@@ -11,6 +12,12 @@ import type { StructuredAgentSessionEventSink } from '../native-chat/agent-sessi
 import type { RosterGroup } from './claude-subagent-roster-state'
 
 type GroupRowAttempts = (entryId: string) => number
+
+/** A group row an earlier run journaled: its children and the turn it was written beside. */
+export type JournaledClaudeSubagentGroup = {
+  entries: readonly NativeChatSubagentEntry[]
+  turnScope: AgentJournalTurnScope
+}
 
 /** Durable journal identity for the group's row — stable across revisions and
  *  across a restart, so replay finds the same row instead of appending a new one. */
@@ -27,12 +34,14 @@ export function claudeSubagentGroupIdentity(groupId: string): AgentJournalItemId
  */
 export function inheritedClaudeSubagentGroup(
   groupId: string,
-  entries: readonly NativeChatSubagentEntry[],
+  { entries, turnScope }: JournaledClaudeSubagentGroup,
   attemptOf: GroupRowAttempts
 ): RosterGroup {
   const group: RosterGroup = {
     groupId,
     identity: claudeSubagentGroupIdentity(groupId),
+    // The row keeps the turn it was created beside; a later run's writes never move it.
+    turnScope,
     entries: new Map(),
     admittedEntries: entries.length,
     claimedLabels: new Set(),
@@ -83,7 +92,7 @@ export function writeClaudeSubagentGroupRow(
   group: RosterGroup
 ): void {
   const agents = [...group.entries.values()].map((tracked) => tracked.entry)
-  const options = { coalescingKey: `claude-subagents:${group.groupId}` }
+  const options = { coalescingKey: `claude-subagents:${group.groupId}`, turnScope: group.turnScope }
   if (agents.length === 0) {
     // The row's last child turned out not to be a subagent. An empty roster is
     // not a roster of nothing, so the row goes rather than reading "Ran 0".

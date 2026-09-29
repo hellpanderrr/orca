@@ -6,6 +6,7 @@ import {
   claudeSubagentGroupIdentity,
   inheritedClaudeSubagentGroup
 } from './claude-subagent-group-row'
+import type { AgentJournalTurnScope } from '../../shared/agent-session-journal-types'
 import type { ClaudeJournaledRosterSource } from './claude-subagent-journaled-roster'
 import type { RosterGroup, TrackedEntry } from './claude-subagent-roster-state'
 
@@ -24,6 +25,8 @@ export class ClaudeSubagentRosterGroups {
   constructor(
     private readonly deps: {
       journaled?: ClaudeJournaledRosterSource
+      /** The open turn's scope, which a group this run creates belongs to. */
+      currentTurnScope: () => AgentJournalTurnScope
       /** Once a group leaves the map nothing can reach its children again — not
        *  even a session sweep — so contact is lost here. */
       onEvicted: (group: RosterGroup) => void
@@ -67,6 +70,7 @@ export class ClaudeSubagentRosterGroups {
     const group: RosterGroup = {
       groupId,
       identity: claudeSubagentGroupIdentity(groupId),
+      turnScope: this.deps.currentTurnScope(),
       entries: new Map(),
       admittedEntries: 0,
       claimedLabels: new Set(),
@@ -92,11 +96,11 @@ export class ClaudeSubagentRosterGroups {
   /** Once per group: after that this run's copy is the newer one. */
   private inherit(groupId: string): RosterGroup | null {
     const journaled = this.deps.journaled
-    const entries = journaled?.claimGroup(groupId) ?? null
-    if (!journaled || !entries) {
+    const row = journaled?.claimGroup(groupId) ?? null
+    if (!journaled || !row) {
       return null
     }
-    const group = inheritedClaudeSubagentGroup(groupId, entries, journaled.attempt)
+    const group = inheritedClaudeSubagentGroup(groupId, row, journaled.attempt)
     this.admit(group)
     for (const id of group.entries.keys()) {
       // A child an older build listed in two rows lives only in the one the reading chose, whichever

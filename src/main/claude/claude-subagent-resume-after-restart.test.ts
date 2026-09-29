@@ -2,7 +2,10 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AgentJournalRenderItem } from '../../shared/agent-session-journal-types'
+import {
+  AGENT_JOURNAL_THREAD_SCOPE,
+  type AgentJournalRenderItem
+} from '../../shared/agent-session-journal-types'
 import {
   isBackgroundTaskBlock,
   isSubagentGroupBlock,
@@ -205,7 +208,8 @@ async function journalAnOlderBuildListedTwice(): Promise<AgentSessionJournal> {
   ] as const) {
     older.sink.appendItem(
       claudeSubagentGroupIdentity(groupId),
-      claudeSubagentGroupBody(groupId, agents)
+      claudeSubagentGroupBody(groupId, agents),
+      { turnScope: AGENT_JOURNAL_THREAD_SCOPE }
     )
   }
   await expect(older.drained()).resolves.toEqual({ ok: true })

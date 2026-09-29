@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
+import {
+  AGENT_JOURNAL_THREAD_SCOPE,
+  type AgentJournalTurnScope
+} from '../../shared/agent-session-journal-types'
 import type { NativeChatSubagentEntry } from '../../shared/native-chat-types'
+import type { JournaledClaudeSubagentGroup } from './claude-subagent-group-row'
 import type { ClaudeJournaledRosterSource } from './claude-subagent-journaled-roster'
 import { ClaudeSubagentRosterGroups } from './claude-subagent-roster-groups'
 
@@ -11,11 +16,16 @@ const entry = (id: string): NativeChatSubagentEntry => ({
   settledAt: 2
 })
 
+const turnScope = (groupId: string): AgentJournalTurnScope => ({
+  kind: 'turn',
+  turnItemId: `claude:claude-session:${groupId}`
+})
+
 /** An older build listed `agent-a` in both rows; the reading places it in the later one. */
 function journaledTwiceListed(): ClaudeJournaledRosterSource {
-  const rows = new Map<string, NativeChatSubagentEntry[]>([
-    ['turn-a', [entry('agent-a'), entry('agent-b')]],
-    ['turn-b', [entry('agent-a')]]
+  const rows = new Map<string, JournaledClaudeSubagentGroup>([
+    ['turn-a', { entries: [entry('agent-a'), entry('agent-b')], turnScope: turnScope('turn-a') }],
+    ['turn-b', { entries: [entry('agent-a')], turnScope: turnScope('turn-b') }]
   ])
   const groupOf = new Map([
     ['agent-a', 'turn-b'],
@@ -25,9 +35,9 @@ function journaledTwiceListed(): ClaudeJournaledRosterSource {
     canonical: () => null,
     groupOf: (id) => groupOf.get(id) ?? null,
     claimGroup: (groupId) => {
-      const entries = rows.get(groupId) ?? null
+      const row = rows.get(groupId) ?? null
       rows.delete(groupId)
-      return entries
+      return row
     },
     attempt: () => 1
   }
@@ -41,6 +51,7 @@ describe('ClaudeSubagentRosterGroups', () => {
     ]) {
       const groups = new ClaudeSubagentRosterGroups({
         journaled: journaledTwiceListed(),
+        currentTurnScope: () => AGENT_JOURNAL_THREAD_SCOPE,
         onEvicted: () => {}
       })
       for (const id of order) {
@@ -54,6 +65,7 @@ describe('ClaudeSubagentRosterGroups', () => {
   it('keeps a child placed in a held row when another row listing it is evicted', () => {
     const groups = new ClaudeSubagentRosterGroups({
       journaled: journaledTwiceListed(),
+      currentTurnScope: () => AGENT_JOURNAL_THREAD_SCOPE,
       onEvicted: () => {}
     })
     groups.locateOrInherit('agent-b')
@@ -65,5 +77,16 @@ describe('ClaudeSubagentRosterGroups', () => {
     expect(groups.get('turn-a')).toBeUndefined()
     expect(groups.locate('agent-b')).toBeNull()
     expect(groups.locate('agent-a')?.group.groupId).toBe('turn-b')
+  })
+
+  it('keeps an inherited row beside the turn that wrote it, and puts a new row beside the open turn', () => {
+    const live = turnScope('turn-live')
+    const groups = new ClaudeSubagentRosterGroups({
+      journaled: journaledTwiceListed(),
+      currentTurnScope: () => live,
+      onEvicted: () => {}
+    })
+    expect(groups.locateOrInherit('agent-b')?.group.turnScope).toEqual(turnScope('turn-a'))
+    expect(groups.groupFor('turn-live').turnScope).toEqual(live)
   })
 })

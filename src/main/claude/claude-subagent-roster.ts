@@ -15,6 +15,7 @@
 // inherits what earlier runs journaled, one group at a time as its own events
 // reach it, so a restart neither splits a child nor erases a row's children.
 
+import type { AgentJournalTurnScope } from '../../shared/agent-session-journal-types'
 import {
   canReplaceSubagentState,
   isTerminalSubagentState
@@ -48,6 +49,8 @@ export type ClaudeSubagentRosterDeps = {
   sink: StructuredAgentSessionEventSink
   /** The turn that owns children spawned right now; null outside any turn. */
   currentGroupKey: () => string | null
+  /** That turn's scope, which the roster row it spawns belongs to. */
+  currentTurnScope: () => AgentJournalTurnScope
   /** Whether a tool id was forwarded at the TOP level. A child parented to one
    *  was spawned by a call the transcript shows, so its announcement is still
    *  expected; a child parented to anything else names an id that only ever
@@ -80,6 +83,7 @@ export class ClaudeSubagentRoster {
     this.now = deps.now ?? (() => Date.now())
     this.groups = new ClaudeSubagentRosterGroups({
       journaled: deps.journaled,
+      currentTurnScope: deps.currentTurnScope,
       onEvicted: (group) => this.sweep(group, true)
     })
     this.ids = new ClaudeSubagentIds(deps.journaled?.canonical)

@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { agentJournalItemKey } from '../../shared/agent-session-journal-item-key'
 import type {
   AgentJournalItemBody,
-  AgentJournalProducerLinkage
+  AgentJournalProducerLinkage,
+  AgentJournalTurnScope
 } from '../../shared/agent-session-journal-types'
 import type { NativeChatSubagentEntry } from '../../shared/native-chat-types'
 import type { StructuredAgentSessionLinkageJournal } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
@@ -13,7 +14,7 @@ type Row = {
   itemId: string
   sequence: number
   body: AgentJournalItemBody
-  linkage: AgentJournalProducerLinkage
+  linkage: AgentJournalProducerLinkage & { turnScope?: AgentJournalTurnScope }
 }
 
 const prose: AgentJournalItemBody = {
@@ -33,8 +34,14 @@ const groupRow = (
   sequence: number,
   groupId: string,
   agents: NativeChatSubagentEntry[],
-  itemId = agentJournalItemKey(claudeSubagentGroupIdentity(groupId))
-): Row => ({ itemId, sequence, body: claudeSubagentGroupBody(groupId, agents), linkage: {} })
+  itemId = agentJournalItemKey(claudeSubagentGroupIdentity(groupId)),
+  turnScope?: AgentJournalTurnScope
+): Row => ({
+  itemId,
+  sequence,
+  body: claudeSubagentGroupBody(groupId, agents),
+  linkage: turnScope ? { turnScope } : {}
+})
 
 const entry = (id: string, state: NativeChatSubagentEntry['state']): NativeChatSubagentEntry => ({
   id,
@@ -103,8 +110,18 @@ describe('ClaudeJournaledRoster', () => {
   })
 
   it('hands an earlier run’s group over once, and places a child in the newest row listing it', () => {
+    const turnA: AgentJournalTurnScope = {
+      kind: 'turn',
+      turnItemId: 'claude:claude-session:turn-a'
+    }
     const rows = [
-      groupRow(10, 'turn-a', [entry('task-a', 'failed'), entry('task-b', 'failed')]),
+      groupRow(
+        10,
+        'turn-a',
+        [entry('task-a', 'failed'), entry('task-b', 'failed')],
+        undefined,
+        turnA
+      ),
       groupRow(20, 'turn-b', [entry('task-a', 'working')]),
       // Another lane's group block under a key this roster never writes.
       groupRow(30, 'turn-c', [entry('task-c', 'working')], 'orca:elsewhere')
@@ -114,7 +131,10 @@ describe('ClaudeJournaledRoster', () => {
     expect(journaled.groupOf('task-a')).toBe('turn-b')
     expect(journaled.groupOf('task-b')).toBe('turn-a')
     expect(journaled.groupOf('task-c')).toBeNull()
-    expect(journaled.claimGroup('turn-a')?.map((agent) => agent.id)).toEqual(['task-a', 'task-b'])
+    const claimed = journaled.claimGroup('turn-a')
+    expect(claimed?.entries.map((agent) => agent.id)).toEqual(['task-a', 'task-b'])
+    // The row keeps the turn it was created beside.
+    expect(claimed?.turnScope).toEqual(turnA)
     // After that the roster's own copy is the newer one.
     expect(journaled.claimGroup('turn-a')).toBeNull()
   })
@@ -129,7 +149,7 @@ describe('ClaudeJournaledRoster', () => {
       groupRow(2, 'turn-a', [entry('task-a', 'failed')])
     ])
     expect(journaled.canonical('toolu_a')).toBe('task-a')
-    expect(journaled.claimGroup('turn-a')).toHaveLength(1)
+    expect(journaled.claimGroup('turn-a')?.entries).toHaveLength(1)
   })
 
   it('re-reads the same journal once its epoch is replaced', () => {

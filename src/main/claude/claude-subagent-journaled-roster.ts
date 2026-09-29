@@ -10,11 +10,17 @@
 // stored, so it cannot disagree with the rows it came from.
 
 import { agentJournalItemKey } from '../../shared/agent-session-journal-item-key'
-import type { AgentJournalProducerLinkage } from '../../shared/agent-session-journal-types'
-import { isSubagentGroupBlock, type NativeChatSubagentEntry } from '../../shared/native-chat-types'
+import {
+  AGENT_JOURNAL_THREAD_SCOPE,
+  type AgentJournalProducerLinkage
+} from '../../shared/agent-session-journal-types'
+import { isSubagentGroupBlock } from '../../shared/native-chat-types'
 import type { StructuredAgentSessionLinkageJournal } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
 import { isBoundedClaudeTaskId } from './claude-background-task-tracker'
-import { claudeSubagentGroupIdentity } from './claude-subagent-group-row'
+import {
+  claudeSubagentGroupIdentity,
+  type JournaledClaudeSubagentGroup
+} from './claude-subagent-group-row'
 
 /** What the roster asks of earlier runs. */
 export type ClaudeJournaledRosterSource = {
@@ -22,9 +28,9 @@ export type ClaudeJournaledRosterSource = {
   canonical: (toolUseId: string) => string | null
   /** The group row an earlier run last listed this child in. */
   groupOf: (entryId: string) => string | null
-  /** An earlier run's entries for one group, handed over once: after that the
+  /** An earlier run's row for one group, handed over once: after that the
    *  roster's own copy is the newer one. */
-  claimGroup: (groupId: string) => readonly NativeChatSubagentEntry[] | null
+  claimGroup: (groupId: string) => JournaledClaudeSubagentGroup | null
   /** The latest run of this child any row records; 1 when none says more. */
   attempt: (agentId: string) => number
 }
@@ -32,7 +38,7 @@ export type ClaudeJournaledRosterSource = {
 type JournaledRosterReading = {
   canonicalByToolUse: Map<string, string>
   attemptByAgent: Map<string, number>
-  entriesByGroup: Map<string, readonly NativeChatSubagentEntry[]>
+  rowsByGroup: Map<string, JournaledClaudeSubagentGroup>
   groupByEntry: Map<string, string>
 }
 
@@ -52,11 +58,11 @@ export class ClaudeJournaledRoster implements ClaudeJournaledRosterSource {
 
   groupOf = (entryId: string): string | null => this.current()?.groupByEntry.get(entryId) ?? null
 
-  claimGroup = (groupId: string): readonly NativeChatSubagentEntry[] | null => {
+  claimGroup = (groupId: string): JournaledClaudeSubagentGroup | null => {
     const reading = this.current()
-    const entries = reading?.entriesByGroup.get(groupId) ?? null
-    reading?.entriesByGroup.delete(groupId)
-    return entries
+    const row = reading?.rowsByGroup.get(groupId) ?? null
+    reading?.rowsByGroup.delete(groupId)
+    return row
   }
 
   attempt = (agentId: string): number => this.current()?.attemptByAgent.get(agentId) ?? 1
@@ -81,19 +87,22 @@ function readJournaledRoster(
   const reading: JournaledRosterReading = {
     canonicalByToolUse: new Map(),
     attemptByAgent: new Map(),
-    entriesByGroup: new Map(),
+    rowsByGroup: new Map(),
     groupByEntry: new Map()
   }
   // A child two rows list (only an older build wrote that) is the later-created row's: a turn's
   // row is created with its turn, so that is where it last ran.
   const listedAt = new Map<string, number>()
-  journal.visitItemsWithLinkage((itemId, sequence, body, linkage) => {
-    readAgentRow(reading, linkage)
+  journal.visitItemsWithLinkage((itemId, sequence, body, attribution) => {
+    readAgentRow(reading, attribution)
     const group = body.kind === 'message' ? body.blocks.find(isSubagentGroupBlock) : undefined
     if (!group || itemId !== agentJournalItemKey(claudeSubagentGroupIdentity(group.groupId))) {
       return
     }
-    reading.entriesByGroup.set(group.groupId, group.agents)
+    reading.rowsByGroup.set(group.groupId, {
+      entries: group.agents,
+      turnScope: attribution.turnScope ?? AGENT_JOURNAL_THREAD_SCOPE
+    })
     for (const entry of group.agents) {
       if ((listedAt.get(entry.id) ?? -1) < sequence) {
         listedAt.set(entry.id, sequence)
