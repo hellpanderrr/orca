@@ -7,6 +7,7 @@ import type {
   AgentJournalItemIdentity,
   AgentJournalProducerLinkage
 } from '../../../shared/agent-session-journal-types'
+import { AGENT_JOURNAL_THREAD_SCOPE } from '../../../shared/agent-session-journal-types'
 import type { AgentSessionHistoryRequest } from '../../../shared/agent-session-wire'
 import { createTrackedJournalOpener } from '../../native-chat/agent-session-journal/journal-host-database-test-support'
 import type { AgentSessionJournal } from '../../native-chat/agent-session-journal/journal-store'
@@ -51,7 +52,11 @@ async function append(text: string, linkage: AgentJournalProducerLinkage = {}): 
     sessionId: 'claude-1',
     uuid: `uuid-${ordinal}`
   }
-  await host.journal!.appendItem(identity, said(text), { fence: 1, ...linkage })
+  await host.journal!.appendItem(identity, said(text), {
+    fence: 1,
+    turnScope: AGENT_JOURNAL_THREAD_SCOPE,
+    ...linkage
+  })
 }
 
 const subagent: AgentJournalProducerLinkage = { agentId: 'task-1', producerKind: 'agent' }

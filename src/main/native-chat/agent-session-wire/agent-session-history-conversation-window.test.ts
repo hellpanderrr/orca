@@ -7,6 +7,7 @@ import type {
   AgentJournalProducerLinkage,
   AgentSessionJournalIdentity
 } from '../../../shared/agent-session-journal-types'
+import { AGENT_JOURNAL_THREAD_SCOPE } from '../../../shared/agent-session-journal-types'
 import type {
   AgentSessionHistoryPage,
   AgentSessionHistoryRequest
@@ -56,7 +57,7 @@ async function appendRoster(agentIds: string[]): Promise<void> {
         }
       ]
     },
-    { fence: 1 }
+    { fence: 1, turnScope: AGENT_JOURNAL_THREAD_SCOPE }
   )
 }
 
@@ -66,7 +67,7 @@ async function append(texts: string[], linkage: AgentJournalProducerLinkage = {}
     await journal.appendItem(
       { provider: 'codex', threadId: 'thread-1', turnId: 'turn-1', ordinal },
       said(text),
-      { fence: 1, ...linkage }
+      { fence: 1, turnScope: AGENT_JOURNAL_THREAD_SCOPE, ...linkage }
     )
   }
 }
