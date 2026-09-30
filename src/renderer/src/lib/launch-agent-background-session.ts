@@ -196,6 +196,7 @@ export async function launchAgentBackgroundSession(
             ? { startupCommandDelivery: startupPlan.startupCommandDelivery }
             : {}),
         env: paneEnv,
+        ...(startupPlan.launchFile ? { launchFile: startupPlan.launchFile } : {}),
         launchConfig: startupPlan.launchConfig,
         launchToken,
         launchAgent: agent,

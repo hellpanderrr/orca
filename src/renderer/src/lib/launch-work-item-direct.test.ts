@@ -433,26 +433,14 @@ describe('launchWorkItemDirect', () => {
       platform: 'win32',
       isRemote: false
     })
-    expect(buildAgentStartupPlan).not.toHaveBeenCalledWith(
-      expect.objectContaining({
-        agent: 'claude',
-        prompt: '',
-        allowEmptyPromptLaunch: true
-      })
-    )
-    expect(mocks.activateAndRevealWorktree).toHaveBeenCalledWith(
-      'repo-1::/repo/worktree',
-      expect.objectContaining({
-        startup: expect.objectContaining({
-          command: expect.stringContaining('Linked Linear issue: ENG-42')
-        })
-      })
-    )
-    const startupCommand = mocks.activateAndRevealWorktree.mock.calls[0]?.[1]?.startup?.command
-    expect(startupCommand).toContain('https://linear.app/acme/issue/ENG-42/ship-linear-parity')
-    expect(startupCommand).not.toContain('The distinctive Linear body text is here.')
-    expect(startupCommand).not.toContain('--- BEGIN LINKED WORK ITEM CONTEXT ---')
-    expect(pasteDraftWhenAgentReady).not.toHaveBeenCalled()
+    // Windows shells have no bracketed paste, so a multi-line draft is never typed onto the launch
+    // line; it is pasted into the agent's own composer instead.
+    const startup = mocks.activateAndRevealWorktree.mock.calls[0]?.[1]?.startup
+    expect(startup?.command).not.toContain('Linked Linear issue')
+    const pasted: string = startup?.draftPrompt ?? ''
+    expect(pasted).toContain(expectedDraft)
+    expect(pasted).not.toContain('The distinctive Linear body text is here.')
+    expect(pasted).not.toContain('--- BEGIN LINKED WORK ITEM CONTEXT ---')
   })
 
   it('seeds the chat-composer launch draft for a GitHub issue draft launch', async () => {

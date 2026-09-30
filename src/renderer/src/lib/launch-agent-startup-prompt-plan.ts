@@ -75,11 +75,15 @@ export function planLaunchAgentStartupPrompt(args: {
     return pasteAfterReady(promptDelivery === 'submit-after-ready')
   }
   if (!hasPrompt || args.launchesOnPairedHost) {
-    return {
-      startupPlan: buildAgentStartupPlan({ ...base, prompt, allowEmptyPromptLaunch: !hasPrompt }),
-      pasteDraftAfterLaunch: null,
-      submitPastedPrompt: false
-    }
+    const startupPlan = buildAgentStartupPlan({
+      ...base,
+      prompt,
+      allowEmptyPromptLaunch: !hasPrompt
+    })
+    // A paired host is sent a command, never a launch file, so a prompt that needs one is pasted.
+    return startupPlan?.launchFile
+      ? pasteAfterReady(true)
+      : { startupPlan, pasteDraftAfterLaunch: null, submitPastedPrompt: false }
   }
   const carried = planStartupWithLaunchPrompt(base, prompt, { wsl: args.launchesInLocalWsl })
   if (carried.promptLeftForPaste) {

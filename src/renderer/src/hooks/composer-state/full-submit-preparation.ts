@@ -222,6 +222,7 @@ export function useFullSubmitPreparation(input: FullSubmitPreparationInput) {
               ...(startupPlan.startupCommandDelivery
                 ? { startupCommandDelivery: startupPlan.startupCommandDelivery }
                 : {}),
+              ...(startupPlan.launchFile ? { launchFile: startupPlan.launchFile } : {}),
               telemetry: composerTelemetry
             }
           : undefined

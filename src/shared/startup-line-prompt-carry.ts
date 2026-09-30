@@ -53,8 +53,10 @@ export function planStartupWithLaunchPrompt(
   }
   const planned = planLaunchPrompt(text, options)
   const plan = build(planned.prompt)
-  if (planned.launchFile) {
-    return { plan, launchFile: planned.launchFile }
+  // The builder itself moves a Windows prompt with a line break into a launch file.
+  const launchFile = planned.launchFile ?? plan?.launchFile
+  if (launchFile) {
+    return { plan, launchFile }
   }
   if (!plan || !typesUnstaged(inputs) || windowsTypedStartupLineFits(plan.launchCommand)) {
     return { plan }

@@ -197,6 +197,7 @@ export async function submitFolderWorkspaceCreate({
           ...(startupPlan.startupCommandDelivery
             ? { startupCommandDelivery: startupPlan.startupCommandDelivery }
             : {}),
+          ...(startupPlan.launchFile ? { launchFile: startupPlan.launchFile } : {}),
           telemetry: {
             agent_kind: tuiAgentToAgentKind(quickAgent),
             launch_source: launchSource,

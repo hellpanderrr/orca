@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -9,6 +9,8 @@ import {
 } from './child-process/__fixtures__/windows-argument-corpus'
 import { removeTreeSync } from './windows-transient-lock-removal'
 import { quoteStartupArg } from './tui-agent-startup-shell'
+import { buildAgentStartupPlan } from './tui-agent-startup'
+import { removeLaunchFile, writeLaunchFile } from './launch-file-writing'
 
 /**
  * A launch line typed into a cmd pane is read by cmd's command-line parser, as stdin is here, then
@@ -57,4 +59,37 @@ describeOnWindows('cmd launch-line prompt quoting', () => {
       expect(await typeIntoCmd(`"${shim}" ${quoteStartupArg(value, 'cmd')}`)).toEqual([value])
     }
   )
+
+  it('never lets a multi-line prompt reach cmd as commands: the line names a launch file', async () => {
+    const marker = join(dir, 'pwned.txt')
+    const prompt = `Fix the build\r\n& echo PWNED> "${marker}"\nthen run the tests`
+    const plan = buildAgentStartupPlan({
+      agent: 'claude',
+      prompt,
+      cmdOverrides: { claude: shim },
+      platform: 'win32',
+      shell: 'cmd'
+    })
+    const launchFile = plan?.launchFile
+    if (!plan || !launchFile) {
+      throw new Error('a multi-line cmd prompt must ride a launch file')
+    }
+    // What the host does before typing: write the file, put its path where the placeholder was.
+    const written = writeLaunchFile({
+      launchFile,
+      command: plan.launchCommand,
+      platform: 'win32'
+    })
+    try {
+      const typed = written.command ?? ''
+      expect(typed).not.toMatch(/[\r\n]/)
+      const args = await typeIntoCmd(typed)
+      expect(args).toHaveLength(1)
+      expect(args[0]).toContain(written.path)
+      expect(readFileSync(written.path, 'utf8')).toBe(prompt)
+      expect(existsSync(marker)).toBe(false)
+    } finally {
+      removeLaunchFile(written)
+    }
+  })
 })

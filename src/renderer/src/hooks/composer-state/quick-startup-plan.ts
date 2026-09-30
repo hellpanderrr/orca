@@ -116,6 +116,7 @@ export function buildQuickComposerStartup(input: QuickComposerStartupInput): Qui
           ...(startupPlan.startupCommandDelivery
             ? { startupCommandDelivery: startupPlan.startupCommandDelivery }
             : {}),
+          ...(startupPlan.launchFile ? { launchFile: startupPlan.launchFile } : {}),
           ...(telemetry ? { telemetry } : {})
         }
       : undefined

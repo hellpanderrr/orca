@@ -103,6 +103,50 @@ describe('tui agent startup plans', () => {
     expect(plan?.launchCommand).toBe('claude "fix ""quoted"" & "^%"PATH"^%""')
   })
 
+  it.each(['cmd', 'powershell'] as const)(
+    'never types a line break into %s: a multi-line prompt rides a launch file',
+    (shell) => {
+      const prompt = 'fix the build\r\n& echo PWNED\nthen run tests'
+      const plan = buildAgentStartupPlan({
+        agent: 'claude',
+        prompt,
+        cmdOverrides: {},
+        platform: 'win32',
+        shell
+      })
+
+      expect(plan?.launchCommand).not.toMatch(/[\r\n]/)
+      expect(plan?.launchCommand).not.toContain('PWNED')
+      expect(plan?.launchFile).toMatchObject({ content: prompt, sensitive: false })
+      expect(plan?.launchCommand).toContain(plan?.launchFile?.placeholder)
+    }
+  )
+
+  it('keeps a multi-line prompt inline for a POSIX shell, which the host stages', () => {
+    const plan = buildAgentStartupPlan({
+      agent: 'claude',
+      prompt: 'line one\nline two',
+      cmdOverrides: {},
+      platform: 'win32',
+      shell: 'posix'
+    })
+
+    expect(plan?.launchFile).toBeUndefined()
+    expect(plan?.launchCommand).toContain('line one\nline two')
+  })
+
+  it('leaves a multi-line draft for the paste on a Windows shell instead of typing it', () => {
+    expect(
+      buildAgentDraftLaunchPlan({
+        agent: 'claude',
+        draft: 'line one\nline two',
+        cmdOverrides: {},
+        platform: 'win32',
+        shell: 'cmd'
+      })
+    ).toBeNull()
+  })
+
   it('terminates Grok options before a flag-shaped POSIX prompt', () => {
     const plan = buildAgentStartupPlan({
       agent: 'grok',

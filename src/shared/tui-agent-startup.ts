@@ -5,10 +5,12 @@ import type { SleepingAgentLaunchConfig } from './agent-session-resume'
 import {
   clearEnvCommand,
   commandSeparator,
+  isPosixStartupShell,
   quoteStartupArg,
   resolveStartupShell,
   type AgentStartupShell
 } from './tui-agent-startup-shell'
+import { carryInLaunchFile, type LaunchFile } from './launch-prompt-file'
 import { TUI_AGENT_CONFIG } from './tui-agent-config'
 import type { StartupCommandDelivery } from './codex-startup-delivery'
 import { buildSleepingAgentLaunchConfig } from './sleeping-agent-launch-config'
@@ -33,6 +35,16 @@ export type AgentStartupPlan = {
   /** Values actually emitted into this launch command, kept as base model ids
    * so the native-chat surface can render only launch-backed state. */
   sessionOptions?: Record<string, SessionOptionValue>
+  /** Holds the prompt the command points at; the host writes it before typing the command. */
+  launchFile?: LaunchFile
+}
+
+/** Why: cmd and PowerShell have no bracketed paste, so a line break typed inside a prompt submits
+ *  the line early and hands the rest to the shell as commands. */
+function windowsLineBreakLaunchFile(prompt: string, shell: AgentStartupShell) {
+  return !isPosixStartupShell(shell) && /[\r\n]/.test(prompt)
+    ? carryInLaunchFile(prompt, false)
+    : null
 }
 
 function appliedSessionOptionProps(values: Record<string, SessionOptionValue>) {
@@ -96,7 +108,9 @@ export function buildAgentStartupPlan(args: {
     }
   }
 
-  const quotedPrompt = quoteStartupArg(trimmedPrompt, shell)
+  const lineFile = windowsLineBreakLaunchFile(trimmedPrompt, shell)
+  const quotedPrompt = quoteStartupArg(lineFile?.prompt ?? trimmedPrompt, shell)
+  const fileProps = lineFile ? { launchFile: lineFile.launchFile } : {}
 
   if (config.promptInjectionMode === 'argv') {
     const promptSeparator = config.argvPromptSeparator ? ` ${config.argvPromptSeparator}` : ''
@@ -111,7 +125,8 @@ export function buildAgentStartupPlan(args: {
       launchConfig,
       ...appliedSessionOptionProps(baseCommand.appliedSessionOptions),
       ...(agent === 'codex' ? { startupCommandDelivery: 'shell-ready' as const } : {}),
-      ...(args.agentEnv ? { env: { ...args.agentEnv } } : {})
+      ...(args.agentEnv ? { env: { ...args.agentEnv } } : {}),
+      ...fileProps
     }
   }
 
@@ -123,7 +138,8 @@ export function buildAgentStartupPlan(args: {
       followupPrompt: null,
       launchConfig,
       ...appliedSessionOptionProps(baseCommand.appliedSessionOptions),
-      ...(args.agentEnv ? { env: { ...args.agentEnv } } : {})
+      ...(args.agentEnv ? { env: { ...args.agentEnv } } : {}),
+      ...fileProps
     }
   }
 
@@ -161,7 +177,8 @@ export function buildAgentStartupPlan(args: {
       followupPrompt: null,
       launchConfig,
       ...appliedSessionOptionProps(baseCommand.appliedSessionOptions),
-      ...(args.agentEnv ? { env: { ...args.agentEnv } } : {})
+      ...(args.agentEnv ? { env: { ...args.agentEnv } } : {}),
+      ...fileProps
     }
   }
 
@@ -173,7 +190,8 @@ export function buildAgentStartupPlan(args: {
       followupPrompt: null,
       launchConfig,
       ...appliedSessionOptionProps(baseCommand.appliedSessionOptions),
-      ...(args.agentEnv ? { env: { ...args.agentEnv } } : {})
+      ...(args.agentEnv ? { env: { ...args.agentEnv } } : {}),
+      ...fileProps
     }
   }
 
@@ -255,6 +273,11 @@ export function buildAgentDraftLaunchPlan(args: {
     agentCommand: baseCommand.commandWithoutSessionOptions
   })
   let plan: AgentDraftLaunchPlan | null = null
+  // Why: a typed line break would submit early (see windowsLineBreakLaunchFile); callers paste the
+  // draft into the agent instead, and a pointer sentence is no draft to edit.
+  if (config.draftPromptFlag && !isPosixStartupShell(shell) && /[\r\n]/.test(trimmed)) {
+    return null
+  }
   if (config.draftPromptFlag) {
     const quoted = quoteStartupArg(trimmed, shell)
     plan = {
