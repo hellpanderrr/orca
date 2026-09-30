@@ -3,13 +3,16 @@
 _Updated 2026-09-30 — branch quick-command-agent-resume_
 
 ## State
-PR stablyai/orca#23995 is draft. Pushed head `61a55e1d`; 12 LOCAL commits on top (review
-fixes + NEXT.md), nothing pushed. PR suites + terminal-pane/agent-status (1170) pass,
-typecheck 0, quality gate 0. New PR body drafted at `F:\temp\pr-23995-body.md` (not applied).
+PR stablyai/orca#23995 is draft. Pushed head `61a55e1d`; local commits on top (review fixes,
+general launcher linking `f5cc50dd`), nothing pushed. Broad renderer/store/lib suites pass
+except palette timing (fails on `main` too); typecheck 0, quality gate 0. PR body draft at
+`F:/temp/pr-23995-body.md` (general-launcher wording, not applied).
 Local Orca shim (`~/bin/orca-claude-dispatch.js`) is live for the installed app.
 
 ## Open threads
-- On user order: push, then `gh pr edit 23995 --repo stablyai/orca --body-file F:/temp/pr-23995-body.md`.
+- On user order: push, then `gh pr edit 23995 --repo stablyai/orca --title "Resume agent tabs through the Quick Command that launched them" --body-file F:/temp/pr-23995-body.md`.
+- Follow-up PR (stacked): latest Quick Command per pane wins (design B: pane-pending ref from
+  menu-run or exact typed match, consumed by the next new session; E = ask-on-restore fallback).
 - Real-app check: restart Orca, confirm a `ccr` Quick Command tab resumes via the wrapper.
 - Optional cleanup: `resolveAgentResumeFlag` (tui-agent-resume-startup.ts) re-derives the
   selector from argv position; a `getAgentResumeSelector` next to `getAgentResumeArgv` is safer.
