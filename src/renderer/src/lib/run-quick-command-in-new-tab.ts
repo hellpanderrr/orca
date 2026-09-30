@@ -6,10 +6,7 @@ import {
   isTerminalAgentQuickCommand,
   supportsTerminalAgentQuickCommand
 } from '../../../shared/terminal-quick-commands'
-import {
-  isAgentLikeQuickCommandText,
-  isPersistableQuickCommandRef
-} from '../../../shared/quick-command-resume'
+import { isPersistableQuickCommandRef } from '../../../shared/quick-command-resume'
 import type { TerminalQuickCommand } from '../../../shared/terminal-quick-command-types'
 
 export type RunQuickCommandInNewTabArgs = {
@@ -112,14 +109,16 @@ export function runQuickCommandInNewTab({
   })
 
   const flattenedCommand = flattenTerminalQuickCommand(command).command
-  // Why: only stamp the resume ref when the Quick Command actually wraps an
-  // agent CLI (`ccr muse --resume`) — a plain `git status` tab sets the same
-  // tab label, and if the user later starts an agent by hand in that pane
-  // the stale label would rebuild `git status --resume <sid>`. Persisted
-  // refs are also capture-validated so a weird label can never poison
+  // Why: stamp every terminal-command Quick Command — a wrapper (`ccr muse`,
+  // `aws-vault exec p -- claude`, a personal script) can't be told apart from
+  // `git status` by its text. The stamp binds only an agent whose status carries
+  // this spawn's launch token, and an unused stamp is retired when the user runs
+  // another command in the pane, so a later hand-started agent can't inherit it.
+  // Refs are capture-validated so a weird label can never poison
   // sleeping-record hydration (which drops the whole record, not the ref).
+  // Multiline commands are never resume-safe (see resolveQuickCommandResumeText).
   const resumeRefStamp =
-    isAgentLikeQuickCommandText(flattenedCommand) &&
+    !/[\r\n]/.test(command.command) &&
     isPersistableQuickCommandRef(command.id) &&
     isPersistableQuickCommandRef(command.label)
       ? {

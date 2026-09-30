@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import {
-  isAgentLikeQuickCommandText,
   isPersistableQuickCommandRef,
   isQuickCommandStampOnlyLaunchConfig,
   isWrapperTextSafeToAppendResume,
@@ -203,28 +202,6 @@ describe('isWrapperTextSafeToAppendResume', () => {
 
   it('rejects unmodelable text (unterminated quote)', () => {
     expect(isWrapperTextSafeToAppendResume("ccr muse --flag 'unterminated", 'posix')).toBe(false)
-  })
-})
-
-describe('isAgentLikeQuickCommandText', () => {
-  it('accepts agent binaries and wrapper commands carrying a selector', () => {
-    expect(isAgentLikeQuickCommandText('claude --resume')).toBe(true)
-    expect(isAgentLikeQuickCommandText('ccr muse --dangerously-skip-permissions --resume')).toBe(
-      true
-    )
-  })
-
-  it('rejects plain shell commands and bare wrappers', () => {
-    expect(isAgentLikeQuickCommandText('git status')).toBe(false)
-    expect(isAgentLikeQuickCommandText('pnpm dev')).toBe(false)
-    expect(isAgentLikeQuickCommandText('ccr muse')).toBe(false)
-    expect(isAgentLikeQuickCommandText('')).toBe(false)
-  })
-
-  it('rejects everyday short -r/-c flags on non-agent commands', () => {
-    expect(isAgentLikeQuickCommandText('grep -r TODO .')).toBe(false)
-    expect(isAgentLikeQuickCommandText('cp -r a b')).toBe(false)
-    expect(isAgentLikeQuickCommandText('git -c color.ui=always log')).toBe(false)
   })
 })
 

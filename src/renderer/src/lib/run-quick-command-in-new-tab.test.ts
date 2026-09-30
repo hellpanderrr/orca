@@ -114,11 +114,45 @@ describe('runQuickCommandInNewTab', () => {
       groupId: 'group-1'
     })
 
-    // Why: `git status` is not agent-like, so no resume ref is stamped —
-    // a later hand-started agent in this pane must not rebuild
-    // `git status --resume <sid>`.
+    // Why: every terminal-command Quick Command is stamped; the stamp is
+    // retired unused once the user runs another command in the pane, so a
+    // later hand-started agent can't rebuild `git status --resume <sid>`.
     expect(mockState.queueTabStartupCommand).toHaveBeenCalledWith('tab-new', {
-      command: 'git status'
+      command: 'git status',
+      launchConfig: {
+        agentArgs: '',
+        agentEnv: {},
+        quickCommandId: 'status',
+        quickCommandLabel: 'Status'
+      }
+    })
+  })
+
+  it.each([
+    'CLAUDE_CONFIG_DIR=~/.claude-work claude',
+    'aws-vault exec prod -- claude',
+    'claude-work'
+  ])('stamps general launcher quick commands: %s', (text) => {
+    runQuickCommandInNewTab({
+      command: {
+        id: 'launcher',
+        label: 'launcher',
+        action: 'terminal-command',
+        command: text,
+        appendEnter: true
+      },
+      worktreeId: 'wt-1',
+      groupId: 'group-1'
+    })
+
+    expect(mockState.queueTabStartupCommand).toHaveBeenCalledWith('tab-new', {
+      command: text,
+      launchConfig: {
+        agentArgs: '',
+        agentEnv: {},
+        quickCommandId: 'launcher',
+        quickCommandLabel: 'launcher'
+      }
     })
   })
 
