@@ -12,7 +12,7 @@ import type {
   AgentSessionHistoryRequest
 } from '../../../shared/agent-session-wire'
 import { serializeRemoteRuntimePayload } from '../../../shared/remote-runtime-memory-limits'
-import { createTrackedJournalOpener } from '../agent-session-journal/journal-store-test-open'
+import { createTrackedJournalOpener } from '../agent-session-journal/journal-host-database-test-support'
 import type { AgentSessionJournal } from '../agent-session-journal/journal-store'
 import {
   readAgentSessionHistory,
@@ -97,7 +97,7 @@ beforeEach(async () => {
   ordinal = 0
   journal = await journals.open({
     identity: IDENTITY,
-    journalDir: root,
+    stateDirectory: root,
     now: () => ++clock,
     mintEpoch: () => 'epoch-1'
   })

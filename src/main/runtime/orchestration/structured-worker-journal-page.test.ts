@@ -8,7 +8,7 @@ import type {
   AgentJournalProducerLinkage
 } from '../../../shared/agent-session-journal-types'
 import type { AgentSessionHistoryRequest } from '../../../shared/agent-session-wire'
-import { createTrackedJournalOpener } from '../../native-chat/agent-session-journal/journal-store-test-open'
+import { createTrackedJournalOpener } from '../../native-chat/agent-session-journal/journal-host-database-test-support'
 import type { AgentSessionJournal } from '../../native-chat/agent-session-journal/journal-store'
 import type { AgentSessionHistoryScope } from '../../native-chat/agent-session-wire/agent-session-history-page'
 import { readStructuredAgentSessionHistoryResult } from '../../native-chat/agent-session-wire/structured-agent-session-history-result'
@@ -68,7 +68,7 @@ beforeEach(async () => {
       agent: 'claude',
       providerHandle: { kind: 'claude', sessionId: 'claude-1', leafUuid: null }
     },
-    journalDir: root,
+    stateDirectory: root,
     now: () => ++clock,
     mintEpoch: () => 'epoch-1'
   })
