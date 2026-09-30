@@ -12,7 +12,7 @@ import { compareAgentJournalPositions } from './agent-session-journal-position'
 import { agentJournalItemSubagentId } from './agent-session-journal-producer'
 import { stripNoiseMessages } from './native-chat-noise'
 import { foldToolMessages } from './native-chat-tool-fold'
-import { nativeChatRowTurnKeys } from './native-chat-turn-grouping'
+import { nativeChatTurnMembership, type NativeChatTurnJournal } from './native-chat-turn-membership'
 
 /** Timestamp, then id. A null timestamp sorts first so a source that cannot supply
  *  one stays in place rather than jumping to the end. */
@@ -90,12 +90,12 @@ export function projectNativeChatTranscriptMessages(
   return projectNativeChatTranscript(messages, compare).conversation
 }
 
-/** `turnKeysByItemId`: the host's turn attribution, which the conversation's rows are
- *  grouped by too, so a subagent's row sits in the same turn a parent row there would. */
+/** `journal`: what places the conversation's rows in their turns
+ *  (`nativeChatTurnMembership`), so a subagent's row sits in the turn a parent row there would. */
 export function projectNativeChatTranscript(
   messages: readonly NativeChatMessage[],
   compare: NativeChatMessageCompare = compareNativeChatTranscriptMessages,
-  turnKeysByItemId?: ReadonlyMap<string, string> | null
+  journal?: NativeChatTurnJournal | null
 ): NativeChatTranscriptProjection {
   const sorted = sortedCopy(messages, compare)
   const own: NativeChatMessage[] = []
@@ -121,7 +121,7 @@ export function projectNativeChatTranscript(
   const turnStarts = new Set(
     conversation.filter((message) => message.role === 'user').map((message) => message.id)
   )
-  const turnKeys = nativeChatRowTurnKeys(sorted, turnKeysByItemId, (message) =>
+  const { turnKeys } = nativeChatTurnMembership(sorted, journal, (message) =>
     turnStarts.has(message.id)
   )
   const turnOf = new Map(sorted.map((message, index) => [message, turnKeys[index]]))

@@ -15,7 +15,6 @@ import {
   foldStructuredAgentSubagentRoster,
   NO_STRUCTURED_AGENT_SUBAGENT_ROSTER
 } from '../../../../shared/structured-agent-session-subagent-roster'
-import { selectStructuredAgentTurnBars } from '../../../../shared/structured-agent-session-turn-timing'
 import { NativeChatMessageList } from './NativeChatMessageList'
 import { session, stubLayout } from './native-chat-windowing-test-harness'
 
@@ -220,7 +219,7 @@ describe("a subagent's rows in the transcript", () => {
     expect(screen.getByRole('button', { name: /explore the lane/, expanded: true })).toBeVisible()
   })
 
-  // Rows are grouped by the host's turn records, so a subagent's edit counts in the
+  // Rows are grouped by the journal's turn records, so a subagent's edit counts in the
   // turn that was running when it was made: not a send queued mid-turn, whose own turn
   // had not opened, and in a turn keyed to its own record rather than the last prompt.
   it("counts a subagent's edit in the turn the journal says it was made in", () => {
@@ -258,12 +257,10 @@ describe("a subagent's rows in the transcript", () => {
       childEdit('child-woke', 'src/b.ts', 10),
       say('answer-3', 'assistant', 'Picked up the result.', 11)
     ]
-    const { turnKeysByItemId } = selectStructuredAgentTurnBars(items, [], null)
     render(
       <NativeChatMessageList
         session={session(projectStructuredItemsToNativeChat(items))}
         journalItems={items}
-        turnKeysByItemId={turnKeysByItemId}
         isWorking={false}
         expandSignal={false}
         fontScale={1}

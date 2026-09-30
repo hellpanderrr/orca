@@ -1,11 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import type {
+  AgentJournalItemBody,
+  AgentJournalRenderItem
+} from '../../../../shared/agent-session-journal-types'
+import type {
   NativeChatMessage,
   NativeChatSubagentState
 } from '../../../../shared/native-chat-types'
 import { projectNativeChatTranscript } from '../../../../shared/native-chat-transcript-projection'
-import { nativeChatRowTurnKeys } from '../../../../shared/native-chat-turn-grouping'
-import { selectNativeChatActiveTurnKey } from '../../../../shared/native-chat-turn-status'
+import { nativeChatRowsInDrawOrder } from '../../../../shared/native-chat-turn-grouping'
+import {
+  nativeChatTurnMembership,
+  type NativeChatTurnJournal
+} from '../../../../shared/native-chat-turn-membership'
 import { compareMessages } from './native-chat-session-assembler'
 import {
   nativeChatRowsInTranscriptOrder,
@@ -61,10 +68,72 @@ function roster(id: string, agents: [string, string, NativeChatSubagentState][])
   )
 }
 
-/** `owned`: the host's turn attribution by row id, as the list gets it. */
-function sectionsOf(rows: NativeChatMessage[], owned?: ReadonlyMap<string, string>) {
-  const { conversation, subagentRows } = projectNativeChatTranscript(rows, compareMessages, owned)
+/** The journal a scoped host writes for `rows`: each turn's record, then the rows it
+ *  scopes to that turn; every other row belongs to none. */
+function journalOf(
+  rows: readonly NativeChatMessage[],
+  turns: readonly [turnItemId: string, userItemId: string, rowIds: readonly string[]][]
+): NativeChatTurnJournal {
+  const scopeOf = new Map(
+    turns.flatMap(([turnItemId, , rowIds]) => rowIds.map((rowId) => [rowId, turnItemId] as const))
+  )
+  const item = (
+    itemId: string,
+    body: AgentJournalItemBody,
+    turnItemId: string | undefined,
+    message?: NativeChatMessage
+  ): AgentJournalRenderItem => ({
+    itemId,
+    body,
+    sequence: 0,
+    observedAt: 0,
+    revision: 1,
+    ...(message?.agentId === undefined ? {} : { agentId: message.agentId }),
+    turnScope: turnItemId === undefined ? { kind: 'thread' } : { kind: 'turn', turnItemId }
+  })
+  const items = rows.flatMap((message) => {
+    const role = message.role === 'user' ? 'user' : 'assistant'
+    const own = item(
+      message.id,
+      { kind: 'message', role, blocks: [] },
+      scopeOf.get(message.id),
+      message
+    )
+    const opened = turns.find(([, userItemId]) => userItemId === message.id)
+    return opened === undefined
+      ? [own]
+      : [
+          own,
+          item(
+            opened[0],
+            {
+              kind: 'turn',
+              turnId: opened[0],
+              state: 'completed',
+              userItemId: message.id,
+              startedAt: 0
+            },
+            undefined
+          )
+        ]
+  })
+  return { items, submissions: [] }
+}
+
+/** `journal`: what places each row in its turn, as the list gets it. */
+function sectionsOf(rows: NativeChatMessage[], journal?: NativeChatTurnJournal) {
+  const { conversation, subagentRows } = projectNativeChatTranscript(rows, compareMessages, journal)
   return { conversation, sections: nativeChatSubagentSections(conversation, subagentRows) }
+}
+
+/** The conversation's rows in draw order with their turns, as the list resolves them. */
+function turnRowsOf(conversation: readonly NativeChatMessage[], journal?: NativeChatTurnJournal) {
+  const { turnKeys, liveTurnKey, drawOrder } = nativeChatTurnMembership(conversation, journal)
+  return {
+    messages: nativeChatRowsInDrawOrder(conversation, drawOrder),
+    turnKeys: nativeChatRowsInDrawOrder(turnKeys, drawOrder),
+    liveTurnKey
+  }
 }
 
 /** `choices` and `rosters`: the sections and roster lists the reader opened (true) or
@@ -74,13 +143,11 @@ function slotsOf(
   choices: Record<string, boolean> = {},
   isWorking = false,
   rosters: Record<string, boolean> = {},
-  owned?: ReadonlyMap<string, string>
+  journal?: NativeChatTurnJournal
 ): NativeChatTranscriptSlot[] {
-  const { conversation, sections } = sectionsOf(rows, owned)
+  const { conversation, sections } = sectionsOf(rows, journal)
   return buildNativeChatTranscriptSlots({
-    messages: conversation,
-    turnKeys: nativeChatRowTurnKeys(conversation, owned),
-    activeTurnKey: selectNativeChatActiveTurnKey(conversation),
+    ...turnRowsOf(conversation, journal),
     receipts: new Map(),
     turnStatuses: { active: null, completedByTurn: {} },
     turnDiffs: new Map(),
@@ -171,6 +238,32 @@ describe("a subagent's rows live in its own section", () => {
     expect(outline(slots)).toEqual(OPEN_UNDER_ROSTER)
     expect(slots.filter((slot) => slot.kind !== 'message')).toEqual([])
     expect(new Set(slots.map(nativeChatSlotKey)).size).toBe(slots.length)
+  })
+
+  // The fold reads only the conversation, so a subagent's failure after the answer is its own.
+  it("folds a settled turn to the session's own answer, not a subagent's later failure", () => {
+    const failed = [{ type: 'text' as const, text: 'The subagent failed.', tone: 'error' as const }]
+    const rows = [
+      row('ask', say('review the PR'), { role: 'user' }),
+      row('look', call('Read')),
+      row('answer', say('The review found nothing.')),
+      row('child-failed', failed, { ...by('task-1'), role: 'system' })
+    ]
+    const { conversation, sections } = sectionsOf(rows)
+    const slots = buildNativeChatTranscriptSlots({
+      ...turnRowsOf(conversation),
+      receipts: new Map(),
+      turnStatuses: {
+        active: null,
+        completedByTurn: { ask: { startedAt: 0, thinking: false, workedSeconds: 3 } }
+      },
+      turnDiffs: new Map(),
+      expandedTurnKeys: new Set(),
+      isWorking: false,
+      lifecycleWorking: false,
+      subagentSections: sections
+    })
+    expect(outline(slots)).toEqual(['ask', 'answer', '[task-1]'])
   })
 
   it("reserves a section's prose the controls it keeps inside the section", () => {
@@ -615,26 +708,22 @@ describe("a subagent's edits in its turn's changed files", () => {
       row('answer-1', say('Edited.')),
       row('answer-2', say('Tests pass.'))
     ]
-    const owned = new Map([
-      ['ask-1', 'ask-1'],
-      ['delegate', 'ask-1'],
-      ['ask-2', 'ask-2'],
-      ['child-edit', 'ask-1'],
-      ['answer-1', 'ask-1'],
-      ['answer-2', 'ask-2']
+    const journal = journalOf(rows, [
+      ['turn-1', 'ask-1', ['delegate', 'child-edit', 'answer-1']],
+      ['turn-2', 'ask-2', ['answer-2']]
     ])
-    const { conversation, sections } = sectionsOf(rows, owned)
-    const turnKeys = nativeChatRowTurnKeys(conversation, owned)
+    const { conversation, sections } = sectionsOf(rows, journal)
+    const { messages, turnKeys } = turnRowsOf(conversation, journal)
     const merged = nativeChatRowsInTranscriptOrder(
-      conversation,
+      messages,
       turnKeys,
       nativeChatSubagentRowsInOrder(sections.rows)
     )
     const diffs = nativeChatTurnDiffs(merged.messages, merged.turnKeys, sections.pathOf)
     expect(Array.from(diffs.keys())).toEqual(['ask-1'])
     // No roster names it, so its head sits where its first row happened: among
-    // ask-1's rows, where the outline rail lights ask-1.
-    const turns = slotsOf(rows, {}, false, {}, owned).map((slot) => [
+    // ask-1's rows, which draw ahead of the send that waited behind them.
+    const turns = slotsOf(rows, {}, false, {}, journal).map((slot) => [
       slot.kind === 'subagent'
         ? `[${slot.agentId}]`
         : slot.kind === 'message'
@@ -645,9 +734,9 @@ describe("a subagent's edits in its turn's changed files", () => {
     expect(turns).toEqual([
       ['ask-1', 'ask-1'],
       ['delegate', 'ask-1'],
-      ['ask-2', 'ask-2'],
       ['[task-1]', 'ask-1'],
       ['answer-1', 'ask-1'],
+      ['ask-2', 'ask-2'],
       ['answer-2', 'ask-2']
     ])
   })

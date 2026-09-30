@@ -1,4 +1,9 @@
 import { describe, expect, it } from 'vitest'
+import type {
+  AgentJournalItemBody,
+  AgentJournalRenderItem,
+  AgentJournalTurnScope
+} from './agent-session-journal-types'
 import type { NativeChatMessage } from './native-chat-types'
 import {
   projectNativeChatTranscript,
@@ -27,6 +32,38 @@ function row(
 const say = (value: string) => [{ type: 'text' as const, text: value }]
 const call = (name: string) => [{ type: 'tool-call' as const, name, input: {} }]
 const child = { agentId: 'task-1', producerKind: 'agent' as const }
+
+/** A journal item as a host that states each row's turn writes it; `turnItemId` absent: none. */
+function item(
+  itemId: string,
+  body: AgentJournalItemBody,
+  turnItemId?: string,
+  agentId?: string
+): AgentJournalRenderItem {
+  const turnScope: AgentJournalTurnScope =
+    turnItemId === undefined ? { kind: 'thread' } : { kind: 'turn', turnItemId }
+  return {
+    itemId,
+    body,
+    sequence: 0,
+    observedAt: 0,
+    revision: 1,
+    turnScope,
+    ...(agentId === undefined ? {} : { agentId })
+  }
+}
+const message = (role: 'user' | 'assistant'): AgentJournalItemBody => ({
+  kind: 'message',
+  role,
+  blocks: []
+})
+const turn = (turnId: string, userItemId: string): AgentJournalItemBody => ({
+  kind: 'turn',
+  turnId,
+  state: 'completed',
+  userItemId,
+  startedAt: 0
+})
 
 describe("a subagent's rows are not the conversation's", () => {
   // The shape a background subagent leaves: its rows interleave with its parent's.
@@ -71,9 +108,9 @@ describe("a subagent's rows are not the conversation's", () => {
     ])
   })
 
-  // Main's grouping rule, not position: a send made mid-turn does not own the rows
-  // written before its own turn opened, and a turn keyed to its record owns its rows.
-  it("takes each row's turn from the host's attribution, as the conversation's rows do", () => {
+  // The conversation's grouping rule, not position: a send made mid-turn does not own the
+  // rows written before its own turn opened, and a turn keyed to its record owns its rows.
+  it("takes each row's turn from the journal's turn records, as the conversation's rows do", () => {
     const rows = [
       row('first', say('go'), { role: 'user' }),
       row('child-start', say('Starting.'), child),
@@ -81,28 +118,50 @@ describe("a subagent's rows are not the conversation's", () => {
       row('child-edit', call('Edit'), child),
       row('child-woke', call('Write'), child)
     ]
-    const owned = new Map([
-      ['first', 'first'],
-      ['child-start', 'first'],
-      ['second', 'second'],
-      ['child-edit', 'first'],
-      ['child-woke', 'turn-3-record']
-    ])
-    const projected = projectNativeChatTranscript(rows, undefined, owned).subagentRows.get('task-1')
+    const journal = {
+      items: [
+        item('first', message('user')),
+        item('turn-1', turn('1', 'first')),
+        item('child-start', message('assistant'), 'turn-1', 'task-1'),
+        item('second', message('user')),
+        item('child-edit', message('assistant'), 'turn-1', 'task-1'),
+        item('turn-2', turn('2', 'second')),
+        // Its opener is outside the loaded window, so the turn keys to its own record.
+        item('turn-3', turn('3', 'older-send')),
+        item('child-woke', message('assistant'), 'turn-3', 'task-1')
+      ],
+      submissions: []
+    }
+    const projected = projectNativeChatTranscript(rows, undefined, journal).subagentRows.get(
+      'task-1'
+    )
     expect(projected?.map(({ message, turnKey }) => [message.id, turnKey])).toEqual([
       ['child-start', 'first'],
-      ['child-woke', 'turn-3-record']
+      ['child-woke', 'turn-3']
     ])
     expect(projected?.[0]?.message.blocks).toEqual([...say('Starting.'), ...call('Edit')])
   })
 
   it("never lets a subagent's own prompt open a conversation turn", () => {
-    const rows = projectNativeChatTranscript([
+    const transcript = [
       row('ask', say('go'), { role: 'user' }),
       row('child-prompt', say('Review the diff.'), { ...child, role: 'user' }),
       row('child-look', say('Looking.'), child)
-    ]).subagentRows.get('task-1')
+    ]
+    const rows = projectNativeChatTranscript(transcript).subagentRows.get('task-1')
     expect(rows?.every(({ turnKey }) => turnKey === 'ask')).toBe(true)
+    // A host that states turns scopes a prompt written after the turn ended to none.
+    const journal = {
+      items: [
+        item('ask', message('user')),
+        item('turn-1', turn('1', 'ask')),
+        item('child-prompt', message('user'), undefined, 'task-1'),
+        item('child-look', message('assistant'), 'turn-1', 'task-1')
+      ],
+      submissions: []
+    }
+    const scoped = projectNativeChatTranscript(transcript, undefined, journal).subagentRows
+    expect(scoped.get('task-1')?.map(({ turnKey }) => turnKey)).toEqual([undefined, 'ask'])
   })
 
   it('projects a transcript that names no producer exactly as before', () => {

@@ -273,6 +273,7 @@ export function NativeChatStructuredSession(
           <NativeChatMessageList
             session={session}
             journalItems={controller.journalItems}
+            journalSubmissions={controller.submissions}
             subagentRoster={controller.subagentRoster}
             railOutline={controller.railOutline}
             isVisible={props.isVisible}
@@ -281,8 +282,6 @@ export function NativeChatStructuredSession(
             fontScale={fontScale.scale}
             workingStartedAt={controller.workingStartedAt}
             settledTurns={controller.settledTurns}
-            activeTurnOpenedBy={controller.activeTurnOpenedBy}
-            turnKeysByItemId={controller.turnKeysByItemId}
             awaitingInput={prompt === null ? null : 'shown'}
             turnActivity={controller.turnActivity}
             onLinkClick={onLinkClick}
