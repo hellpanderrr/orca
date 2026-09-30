@@ -5,7 +5,6 @@ import {
 import type { TerminalQuickCommand } from './terminal-quick-command-types'
 import { tokenizeStartupCommand, type AgentStartupShell } from './tui-agent-startup-shell'
 import type { SleepingAgentLaunchConfig } from './agent-session-resume'
-import { recognizeAgentProcessFromCommandLine } from './agent-process-recognition'
 
 /**
  * Why this file exists: a terminal-command Quick Command can launch an agent
@@ -174,22 +173,6 @@ export function isAgentLikeQuickCommandText(command: string): boolean {
  * real launch inputs; a stamp-only one must not suppress the user's defaults
  * when the wrapper cannot be used.
  */
-/**
- * Why: a Quick Command stamp carries no launchAgent, so its registry entry
- * would match any agent later started in the pane (the launch token lives in
- * the shell env). Name the agent when the command text starts with one;
- * wrappers like `ccr` stay unnamed.
- */
-export function recognizeQuickCommandStampAgent(startup: {
-  command: string
-  launchConfig?: SleepingAgentLaunchConfig
-}) {
-  if (!startup.launchConfig?.quickCommandId && !startup.launchConfig?.quickCommandLabel) {
-    return undefined
-  }
-  return recognizeAgentProcessFromCommandLine(startup.command)?.agent
-}
-
 export function isQuickCommandStampOnlyLaunchConfig(
   config: SleepingAgentLaunchConfig | undefined
 ): boolean {
