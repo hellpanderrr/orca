@@ -58,8 +58,6 @@ import {
   type NativeChatTurnDiff
 } from './native-chat-turn-diffs'
 
-export { ProviderFrameRow } from './NativeChatTranscriptChrome'
-
 /** The turn is blocked on the reader. `shown`: the pane draws the prompt itself, as a card;
  *  `unshown`: it cannot (the prompt is only in the agent's terminal). */
 export type NativeChatAwaitingInput = 'shown' | 'unshown'
