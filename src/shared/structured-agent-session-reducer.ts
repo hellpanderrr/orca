@@ -15,7 +15,12 @@ import type {
 import type { AgentSessionRefusalReference } from './agent-session-wire-refusals'
 import { backgroundTaskStatesEqual } from './agent-session-background-task-state-equality'
 import { agentJournalSubmissionKey } from './agent-session-journal-item-key'
-import { isRootAgentJournalItem } from './agent-session-journal-producer'
+import {
+  MAX_RETAINED_ITEMS,
+  MAX_RETAINED_OWN_ITEMS,
+  ownItemCount,
+  trimRetainedItems
+} from './structured-agent-session-item-retention'
 import { compareAgentJournalItems } from './agent-session-journal-position'
 import { readAgentJournalTurn } from './agent-session-turn-record'
 import {
@@ -74,13 +79,6 @@ export type StructuredAgentSessionAction =
   | { type: 'older-page'; requestedCursor: AgentJournalCursor; page: AgentSessionHistoryPage }
 
 const MAX_RETAINED_SUBMISSIONS = 256
-// Well above the renderer's initial read window (300) plus a page, so only genuinely
-// long live sessions trim; anything trimmed is still reachable by paging older.
-// Counted in the session's own rows, the rows a reader sees: a subagent's rows sit behind its
-// roster entry on desktop and are not drawn on mobile, so they cannot crowd the conversation out.
-const MAX_RETAINED_OWN_ITEMS = 1024
-// Bounds the memory and the rows every live delta re-derives the transcript over.
-const MAX_RETAINED_ITEMS = 4 * MAX_RETAINED_OWN_ITEMS
 
 export const EMPTY_STRUCTURED_AGENT_SESSION: StructuredAgentSessionState = {
   epoch: null,
@@ -179,33 +177,6 @@ function liveItemsWithinWindow(
     return incoming
   }
   return incoming.filter((item) => item.sequence >= head.sequence)
-}
-
-function ownItemCount(items: readonly AgentJournalRenderItem[]): number {
-  return items.reduce((count, item) => (isRootAgentJournalItem(item) ? count + 1 : count), 0)
-}
-
-/** Everything after the newest own row past `ownLimit`, so a trim only ever cuts through one of
- *  the session's own rows: a paged-in run of a subagent's rows at the head stays until an own row
- *  pushes it out. With no subagent rows this is the newest `ownLimit` rows. */
-function trimRetainedItems(
-  items: AgentJournalRenderItem[],
-  ownLimit: number,
-  cap: number
-): AgentJournalRenderItem[] {
-  let start = Math.max(0, items.length - cap)
-  let own = 0
-  for (let index = items.length - 1; index >= start; index -= 1) {
-    if (!isRootAgentJournalItem(items[index])) {
-      continue
-    }
-    own += 1
-    if (own > ownLimit) {
-      start = index + 1
-      break
-    }
-  }
-  return start === 0 ? items : items.slice(start)
 }
 
 function mergeSubmissions(
