@@ -3,20 +3,41 @@
 _Updated 2026-09-30 — branch quick-command-agent-resume_
 
 ## State
-PR stablyai/orca#23995 is draft; 2 commits pushed. Local: 135 tests pass, quality gate passes, typecheck exits 0.
+PR stablyai/orca#23995 is draft. Local branch now has 4 commits on top of the pushed
+head (`61a55e1d`): `f8d15fac` (NEXT.md) and `5adabc19` (append-safety fix) are LOCAL ONLY —
+not pushed. 146 tests pass across the 3 PR suites, typecheck exits 0, quality gate 0 findings.
+
+## Local work (this session, outside the repo)
+- `~/bin/orca-claude-dispatch.js` rewritten (v2): SQLite profile-state.db source, transcript
+  served-model source, tiered matcher, `--backfill|--rebuild [--write]|--explain <sid>`.
+  Map seeded: 8 sessions resolve (was 3).
+- Shims installed over the real launchers in `AppData\Local\nvm\v23.11.1\`: `claude`,
+  `claude.cmd`, `claude.ps1`. Originals backed up in `~/bin/orca-claude-shims-backup/*.orig`.
+  Verified through bash/cmd/powershell + full chain incl. Cyrillic preset name.
+- Why PATH shim and not the settings override: installed 1.4.215 reads a persisted
+  `agentCommand` BEFORE `agentCmdOverrides`, and 6/13 live sleeping records carry
+  `agentCommand: "claude '--dangerously-skip-permissions'"` — the override is bypassed.
+- New panes pick the shims up immediately (same directory, already on PATH); the running
+  daemon (started 09-29 10:32) needs no restart for that. A daemon restart is only needed
+  if it caches absolute resolution — not observed.
 
 ## Open threads
-- Real cold-restore test: kill a preset tab, `/status` must show `127.0.0.1:3456/preset/<name>` (also decides if ai-vault path needs the fix).
-- Update PR body before undraft (stale pre-existing-failure claim, missing new guards).
-- Compute KNOWN_AGENT_BINARIES from TUI_AGENT_CONFIG instead of the hand-copied set.
-- Hand-typed `ccr` tabs still restore as bare claude (scope limit, not covered).
-
-## Running / unfinished
-- Bot re-review of 61a55e1d pending: `gh pr view 23995 --repo stablyai/orca --comments`.
-- Leftovers outside repo: `~/bin/orca-claude-*`, `~/.orca/claude-preset-by-session.json` (remove if PR lands).
+- Restart Orca, confirm a preset tab restores on the right route (`/status` under a preset
+  should show 127.0.0.1:3465x/preset/<name>, not the default Claude account).
+- 4 live sessions legitimately resolve to none (plain-Claude transcripts, no non-claude model
+  ever) — correct fallback, not a bug. 4 no-session tab records also unresolved.
+- Update PR #23995 body (stale pre-existing-failure claim) before undraft; needs user order.
+- Push `5adabc19` only on user order.
 
 ## Don't redo
-- Session JSONL `message.model` can't identify the preset (tails read claude-sonnet-5-x).
+- Session JSONL `message.model` tail can't identify the preset (post-restore rows are all
+  claude-*) — must scan the WHOLE file for the last non-claude model. Transcripts store
+  upstream ids (`meta/muse-spark-1.3-contributor`) while presets carry cline ids
+  (`cline-free/muse-spark-1.3-contributor`) — match on the last `/`-segment too.
+- The shim dir must be `nvm\v23.11.1` (symlinked as `C:\nvm4w\nodejs`), NOT `.local\bin`:
+  machine PATH `C:\nvm4w\nodejs` outranks every user PATH entry.
+- ccr spawns claude with `--settings <tmp.json>`; the dispatcher must pass that through to the
+  real binary or ccr nests inside ccr.
 - Renderer failures were real payload assertions, not the pre-existing alias issue.
 - cwd-based wrapper routing is dead (mixed presets per worktree).
 - `gh pr edit --draft` unsupported; `gh pr ready --undo` converts to draft.
