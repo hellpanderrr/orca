@@ -21,9 +21,13 @@ Local Orca shim (`~/bin/orca-claude-dispatch.js`) is live for the installed app.
 ## Don't redo
 - NEVER run `pnpm format` — it rewrote line endings on ~26k files. Use
   `pnpm exec oxfmt <changed files>`.
-- Known limits, deliberately not fixed (listed in PR body): QC run in existing tab, remote
-  runtime / other-host QCs, AI Vault, hand-started agent in wrapper tab. Agent-type stamping
-  (finding 4 partial) was tried and reverted in `72b37d22` — side effects on pane identity.
+- Known limits (in PR body): link covers only the launched session; remote runtime /
+  other-host QCs; AI Vault. Review finding 4 ("later agent inherits wrapper") is FALSE: the
+  store consumes the launch token after the first turn (agent-status-live-reducer.ts:68);
+  pinned by agent-status-quick-command-link-lifetime.test.ts. So a pane relink on in-pane QC
+  runs is dead (no registry entry left) — "latest preset wins" needs a new status-store
+  producer (read docs/reference/agent-status-store.md first). Agent-type stamping was
+  reverted in `72b37d22`.
 - All remaining local test failures fail identically on `main` (ACL, palette timing, omp
   shell, git lock, loose-ref, text-search, automation jobs, relay dependency).
 - Shim dir must be `nvm\v23.11.1` (machine PATH wins); settings override route is dead
