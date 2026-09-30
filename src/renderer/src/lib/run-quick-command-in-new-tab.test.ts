@@ -114,8 +114,35 @@ describe('runQuickCommandInNewTab', () => {
       groupId: 'group-1'
     })
 
+    // Why: `git status` is not agent-like, so no resume ref is stamped —
+    // a later hand-started agent in this pane must not rebuild
+    // `git status --resume <sid>`.
     expect(mockState.queueTabStartupCommand).toHaveBeenCalledWith('tab-new', {
       command: 'git status'
+    })
+  })
+
+  it('stamps the resume ref for agent-wrapping quick commands', () => {
+    runQuickCommandInNewTab({
+      command: {
+        id: 'muse',
+        label: 'muse',
+        action: 'terminal-command',
+        command: 'ccr muse --dangerously-skip-permissions --resume',
+        appendEnter: true
+      },
+      worktreeId: 'wt-1',
+      groupId: 'group-1'
+    })
+
+    expect(mockState.queueTabStartupCommand).toHaveBeenCalledWith('tab-new', {
+      command: 'ccr muse --dangerously-skip-permissions --resume',
+      launchConfig: {
+        agentArgs: '',
+        agentEnv: {},
+        quickCommandId: 'muse',
+        quickCommandLabel: 'muse'
+      }
     })
   })
 

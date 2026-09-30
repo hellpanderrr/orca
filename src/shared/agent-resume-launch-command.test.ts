@@ -590,9 +590,33 @@ describe('buildAgentResumeStartupPlan claude selector guard', () => {
       platform: 'linux'
     })
     expect(restored?.launchCommand).toBe(
-      `ccr muse --dangerously-skip-permissions --resume '--resume' '${SESSION_ID}'`
+      `ccr muse --dangerously-skip-permissions '--resume' '${SESSION_ID}'`
     )
     expect(restored?.launchConfig.quickCommandLabel).toBe('muse')
+  })
+
+  it('strips a stale wrapper selector instead of emitting two', () => {
+    const restored = buildAgentResumeStartupPlan({
+      agent: 'claude',
+      providerSession,
+      cmdOverrides: {},
+      agentArgs: '--dangerously-skip-permissions',
+      quickCommandText: 'ccr muse --resume stale-session-id',
+      platform: 'linux'
+    })
+    expect(restored?.launchCommand).toBe(`ccr muse '--resume' '${SESSION_ID}'`)
+  })
+
+  it('never persists wrapper text as the fallback agent command', () => {
+    const restored = buildAgentResumeStartupPlan({
+      agent: 'claude',
+      providerSession,
+      cmdOverrides: {},
+      agentArgs: '--dangerously-skip-permissions',
+      quickCommandText: 'ccr muse --dangerously-skip-permissions',
+      platform: 'linux'
+    })
+    expect(restored?.launchConfig.agentCommand).toBeUndefined()
   })
 
   it('ignores a blank Quick Command wrapper and uses the stock command', () => {

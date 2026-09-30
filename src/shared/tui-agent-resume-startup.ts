@@ -11,6 +11,7 @@ import { resolveStartupShell, type AgentStartupShell } from './tui-agent-startup
 import { TUI_AGENT_CONFIG } from './tui-agent-config'
 import type { TuiAgent } from './tui-agent'
 import { buildAgentResumeLaunchCommand } from './agent-resume-launch-command'
+import { stripStaleResumeSelectors } from './quick-command-resume'
 
 export function buildAgentResumeStartupPlan(args: {
   agent: ResumableTuiAgent
@@ -37,31 +38,47 @@ export function buildAgentResumeStartupPlan(args: {
     return null
   }
   const shell = resolveStartupShell(args.platform, args.shell)
+  // Why: a resolved wrapper is an EXECUTABLE base, never the persisted
+  // fallback command — if the Quick Command is later deleted, resolvers
+  // return null and resume must fall back to stock, not replay a cached
+  // copy of the deleted text (which agentCommand would otherwise keep).
   const resolvedQuickCommandText = args.quickCommandText?.trim()
-  const resolvedAgentCommand = resolvedQuickCommandText || args.agentCommand?.trim()
-  const baseCommand = resolvedAgentCommand
+    ? stripStaleResumeSelectors(args.quickCommandText.trim(), shell)
+    : ''
+  const resolvedAgentCommand = args.agentCommand?.trim()
+  const baseCommand = resolvedQuickCommandText
     ? ({
         ok: true,
-        command: resolvedAgentCommand,
-        commandWithoutSessionOptions: resolvedAgentCommand,
+        command: resolvedQuickCommandText,
+        commandWithoutSessionOptions: '',
         appliedSessionOptions: {}
       } as const)
-    : resolveAgentLaunchCommand({
-        agent: args.agent,
-        cmdOverrides: args.cmdOverrides,
-        platform: args.platform,
-        shell,
-        agentArgs: args.agentArgs,
-        sessionOptions: args.sessionOptions,
-        sessionOptionsOverrideAgentArgs: args.sessionOptionsOverrideAgentArgs,
-        isRemote: args.isRemote
-      })
+    : resolvedAgentCommand
+      ? ({
+          ok: true,
+          command: resolvedAgentCommand,
+          commandWithoutSessionOptions: resolvedAgentCommand,
+          appliedSessionOptions: {}
+        } as const)
+      : resolveAgentLaunchCommand({
+          agent: args.agent,
+          cmdOverrides: args.cmdOverrides,
+          platform: args.platform,
+          shell,
+          agentArgs: args.agentArgs,
+          sessionOptions: args.sessionOptions,
+          sessionOptionsOverrideAgentArgs: args.sessionOptionsOverrideAgentArgs,
+          isRemote: args.isRemote
+        })
   if (!baseCommand.ok) {
     return null
   }
   const launchConfig = buildSleepingAgentLaunchConfig({
     ...args,
-    agentCommand: baseCommand.commandWithoutSessionOptions
+    // Why: `...args` carries quickCommandId/Label already; agentCommand here
+    // is ONLY the stock fallback (never wrapper text), so a deleted Quick
+    // Command retires its route instead of replaying it from cache.
+    agentCommand: resolvedQuickCommandText ? undefined : baseCommand.commandWithoutSessionOptions
   })
   const launchCommand = buildAgentResumeLaunchCommand(args.agent, baseCommand.command, argv, shell)
   const applied = baseCommand.appliedSessionOptions

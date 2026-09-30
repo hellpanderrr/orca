@@ -10,6 +10,7 @@ import {
   type SleepingAgentLaunchConfig,
   type SleepingAgentSessionRecord
 } from '../../../../shared/agent-session-resume'
+import { isPersistableQuickCommandRef } from '../../../../shared/quick-command-resume'
 import type { TerminalTab } from '../../../../shared/terminal-tab-types'
 import { findTabForAgentEntry } from './agent-status-pane-key-tab-binding'
 
@@ -50,17 +51,23 @@ export function sleepingRecordFromEntry(args: {
     ...(tab ? { tabId: tab.id } : {}),
     worktreeId: args.worktreeId,
     agent,
-    // Why: quick-launched agent tabs (terminal-command Quick Commands like
-    // `ccr muse --resume`) must resume through the same user command, not the
-    // stock CLI. launchConfig carries the label when the tab was queued with
-    // one; otherwise fall back to the tab's own persisted label.
-    ...((args.launchConfig?.quickCommandLabel ?? tab?.quickCommandLabel)
+    // Why: only the launch-stamped ref is trusted — never the tab label
+    // alone. A plain `git status` Quick Command tab sets the same label, and
+    // if the user later starts an agent by hand in that pane the stale label
+    // would rebuild `git status --resume <sid>`. launchConfig carries the
+    // stamped ref (gated at queue time); refs are capture-validated so a
+    // weird persisted value can never poison hydration (which drops the
+    // whole record, not the ref).
+    ...((args.launchConfig?.quickCommandId ?? args.launchConfig?.quickCommandLabel)
       ? {
-          ...(args.launchConfig?.quickCommandId
-            ? { quickCommandId: args.launchConfig.quickCommandId }
+          ...(args.launchConfig?.quickCommandId &&
+          isPersistableQuickCommandRef(args.launchConfig.quickCommandId)
+            ? { quickCommandId: args.launchConfig.quickCommandId.trim() }
             : {}),
-          quickCommandLabel: (args.launchConfig?.quickCommandLabel ??
-            tab?.quickCommandLabel) as string
+          ...(args.launchConfig?.quickCommandLabel &&
+          isPersistableQuickCommandRef(args.launchConfig.quickCommandLabel)
+            ? { quickCommandLabel: args.launchConfig.quickCommandLabel.trim() }
+            : {})
         }
       : {}),
     providerSession: args.entry.providerSession,

@@ -6,6 +6,10 @@ import {
   isTerminalAgentQuickCommand,
   supportsTerminalAgentQuickCommand
 } from '../../../shared/terminal-quick-commands'
+import {
+  isAgentLikeQuickCommandText,
+  isPersistableQuickCommandRef
+} from '../../../shared/quick-command-resume'
 import type { TerminalQuickCommand } from '../../../shared/terminal-quick-command-types'
 
 export type RunQuickCommandInNewTabArgs = {
@@ -107,18 +111,29 @@ export function runQuickCommandInNewTab({
     quickCommandLabel: command.label
   })
 
+  const flattenedCommand = flattenTerminalQuickCommand(command).command
+  // Why: only stamp the resume ref when the Quick Command actually wraps an
+  // agent CLI (`ccr muse --resume`) — a plain `git status` tab sets the same
+  // tab label, and if the user later starts an agent by hand in that pane
+  // the stale label would rebuild `git status --resume <sid>`. Persisted
+  // refs are also capture-validated so a weird label can never poison
+  // sleeping-record hydration (which drops the whole record, not the ref).
+  const resumeRefStamp =
+    isAgentLikeQuickCommandText(flattenedCommand) &&
+    isPersistableQuickCommandRef(command.id) &&
+    isPersistableQuickCommandRef(command.label)
+      ? {
+          launchConfig: {
+            agentArgs: '',
+            agentEnv: {},
+            quickCommandId: command.id.trim(),
+            quickCommandLabel: command.label.trim()
+          }
+        }
+      : {}
   store.queueTabStartupCommand(tab.id, {
-    command: flattenTerminalQuickCommand(command).command,
-    // Why: a terminal-command Quick Command may wrap an agent CLI
-    // (`ccr muse --resume`); resume paths read this to re-run the same user
-    // command instead of the stock agent binary. Text is resolved at resume
-    // time so later edits to the Quick Command still apply.
-    launchConfig: {
-      agentArgs: '',
-      agentEnv: {},
-      quickCommandId: command.id,
-      quickCommandLabel: command.label
-    }
+    command: flattenedCommand,
+    ...resumeRefStamp
   })
 
   // Why: match `+` button's createNewTerminalTab — without this, a worktree

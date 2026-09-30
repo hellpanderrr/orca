@@ -1,6 +1,10 @@
 import { toast } from 'sonner'
 import { useAppStore } from '@/store'
-import { resolveQuickCommandResumeText } from '../../../shared/quick-command-resume'
+import {
+  isPersistableQuickCommandRef,
+  resolveQuickCommandResumeText
+} from '../../../shared/quick-command-resume'
+import { getRepoIdFromWorktreeId } from '../../../shared/worktree/id'
 import { buildAgentResumeStartupPlan } from '@/lib/tui-agent-startup'
 import { tuiAgentToAgentKind } from '@/lib/telemetry'
 import { reconcileTabOrder } from '@/components/tab-bar/reconcile-order'
@@ -72,16 +76,28 @@ export function launchSleepingAgentSession(
   const resumeTarget = getResumeLaunchTarget(record.worktreeId)
   // Why: same Quick Command passthrough as the cold-restore path — a
   // terminal-command wrapper (`ccr muse --resume`) that spawned the tab must
-  // be the resume base, resolved live from settings.
+  // be the resume base, resolved live from settings. launchConfig wins when
+  // present, otherwise the record-level ref (older tabs whose config predates
+  // the stamp, or configs without one).
+  const quickCommandRef = {
+    quickCommandId: launchConfig?.quickCommandId ?? record.quickCommandId,
+    quickCommandLabel: launchConfig?.quickCommandLabel ?? record.quickCommandLabel
+  }
   const quickCommandText = resolveQuickCommandResumeText(
     state.settings?.terminalQuickCommands,
-    launchConfig
-      ? {
-          quickCommandId: launchConfig.quickCommandId,
-          quickCommandLabel: launchConfig.quickCommandLabel
-        }
-      : { quickCommandId: record.quickCommandId, quickCommandLabel: record.quickCommandLabel }
+    quickCommandRef,
+    getRepoIdFromWorktreeId(record.worktreeId)
   )
+  const restampedQuickCommandId =
+    quickCommandRef.quickCommandId &&
+    isPersistableQuickCommandRef(quickCommandRef.quickCommandId)
+      ? quickCommandRef.quickCommandId.trim()
+      : undefined
+  const restampedQuickCommandLabel =
+    quickCommandRef.quickCommandLabel &&
+    isPersistableQuickCommandRef(quickCommandRef.quickCommandLabel)
+      ? quickCommandRef.quickCommandLabel.trim()
+      : undefined
   const startupPlan = buildAgentResumeStartupPlan({
     agent: record.agent,
     providerSession: record.providerSession,
@@ -99,12 +115,8 @@ export function launchSleepingAgentSession(
       ? { ompResumeFilePath: launchConfig.ompResumeFilePath }
       : {}),
     ...(quickCommandText ? { quickCommandText } : {}),
-    ...((launchConfig?.quickCommandId ?? record.quickCommandId)
-      ? { quickCommandId: launchConfig?.quickCommandId ?? record.quickCommandId! }
-      : {}),
-    ...((launchConfig?.quickCommandLabel ?? record.quickCommandLabel)
-      ? { quickCommandLabel: launchConfig?.quickCommandLabel ?? record.quickCommandLabel! }
-      : {}),
+    ...(restampedQuickCommandId ? { quickCommandId: restampedQuickCommandId } : {}),
+    ...(restampedQuickCommandLabel ? { quickCommandLabel: restampedQuickCommandLabel } : {}),
     platform: resumeTarget.platform,
     shell: resumeTarget.shell
   })
@@ -120,9 +132,9 @@ export function launchSleepingAgentSession(
 
   const tab = state.createTab(record.worktreeId, undefined, undefined, {
     launchAgent: record.agent,
-    // Why: keep the Quick Command label on the resumed tab so the NEXT
-    // capture still knows this tab belongs to the wrapper, not the stock CLI.
-    ...(record.quickCommandLabel ? { quickCommandLabel: record.quickCommandLabel } : {}),
+    // Why: keep the validated Quick Command label on the resumed tab so the
+    // NEXT capture still knows this tab belongs to the wrapper.
+    ...(restampedQuickCommandLabel ? { quickCommandLabel: restampedQuickCommandLabel } : {}),
     pendingStartup: {
       command: startupPlan.launchCommand,
       ...(startupPlan.env ? { env: startupPlan.env } : {}),
