@@ -114,8 +114,7 @@ describe('DaemonPtyAdapter startup delivery', () => {
   itOnPosix('reports a staged launch line back to main and types only the short line', async () => {
     const stagingDir = join(dir, 'tmp')
     mkdirSync(stagingDir)
-    const originalTmpdir = process.env.TMPDIR
-    process.env.TMPDIR = stagingDir
+    vi.stubEnv('TMPDIR', stagingDir)
     nextShellPath = '/bin/zsh'
     try {
       const command = `claude '${'x'.repeat(600)}'`
@@ -133,15 +132,14 @@ describe('DaemonPtyAdapter startup delivery', () => {
         `. '${join(stagingDir, script)}'\n`
       )
     } finally {
-      process.env.TMPDIR = originalTmpdir
+      vi.unstubAllEnvs()
     }
   })
 
   itOnPosix('writes a launch file before typing the line that names it', async () => {
     const stagingDir = join(dir, 'tmp')
     mkdirSync(stagingDir)
-    const originalTmpdir = process.env.TMPDIR
-    process.env.TMPDIR = stagingDir
+    vi.stubEnv('TMPDIR', stagingDir)
     nextShellPath = '/bin/zsh'
     try {
       const { prompt, launchFile } = planLaunchPrompt('secret brief', { sensitive: true })
@@ -164,7 +162,7 @@ describe('DaemonPtyAdapter startup delivery', () => {
       lastSubprocess._simulateExit(0)
       await waitFor(() => !existsSync(path))
     } finally {
-      process.env.TMPDIR = originalTmpdir
+      vi.unstubAllEnvs()
     }
   })
 })

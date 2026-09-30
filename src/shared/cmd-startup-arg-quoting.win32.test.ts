@@ -39,7 +39,8 @@ describeOnWindows('cmd launch-line prompt quoting', () => {
   async function typeIntoCmd(line: string): Promise<string[]> {
     const result = await runProcess({
       program: 'cmd.exe',
-      args: ['/d', '/q'],
+      // cmd decodes piped stdin in the console code page; a real pane's input arrives as UTF-16.
+      args: ['/d', '/q', '/k', 'chcp', '65001'],
       input: `${line}\r\nexit\r\n`,
       env: { ...process.env, ...WINDOWS_ARGUMENT_CORPUS_ENV },
       timeoutMs: 30_000

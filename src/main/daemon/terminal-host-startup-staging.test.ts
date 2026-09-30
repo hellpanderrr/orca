@@ -7,7 +7,6 @@ import { TerminalHost } from './terminal-host'
 import type { SubprocessHandle } from './session-subprocess-handle'
 
 let tempDir: string
-const originalTmpdir = process.env.TMPDIR
 let exitSubprocess: ((code: number) => void) | undefined
 
 function mockSubprocess(shellPath: string): SubprocessHandle {
@@ -32,12 +31,12 @@ function mockSubprocess(shellPath: string): SubprocessHandle {
 
 beforeEach(() => {
   tempDir = mkdtempSync(join(tmpdir(), 'orca-daemon-staging-'))
-  process.env.TMPDIR = tempDir
+  vi.stubEnv('TMPDIR', tempDir)
   exitSubprocess = undefined
 })
 
 afterEach(() => {
-  process.env.TMPDIR = originalTmpdir
+  vi.unstubAllEnvs()
   rmSync(tempDir, { recursive: true, force: true })
 })
 

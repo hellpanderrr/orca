@@ -44,11 +44,10 @@ describePosix('relay startup command staging', () => {
   let handler: PtyHandler
   let originalPlatform: PropertyDescriptor | undefined
   let stagingDir: string
-  const originalTmpdir = process.env.TMPDIR
 
   beforeEach(() => {
     stagingDir = mkdtempSync(join(tmpdir(), 'orca-relay-staging-'))
-    process.env.TMPDIR = stagingDir
+    vi.stubEnv('TMPDIR', stagingDir)
     ;({ dispatcher, handler, originalPlatform } = beginPtyHandlerTest({
       mockPtySpawn,
       mockPtyInstance,
@@ -58,7 +57,7 @@ describePosix('relay startup command staging', () => {
 
   afterEach(async () => {
     await endPtyHandlerTest(handler, originalPlatform)
-    process.env.TMPDIR = originalTmpdir
+    vi.unstubAllEnvs()
     rmSync(stagingDir, { recursive: true, force: true })
   })
 
