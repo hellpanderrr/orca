@@ -12,7 +12,7 @@ import {
   type NativeChatSubagentEntry
 } from '../../shared/native-chat-types'
 import type { AgentSessionJournal } from '../native-chat/agent-session-journal/journal-store'
-import { createTrackedJournalOpener } from '../native-chat/agent-session-journal/journal-store-test-open'
+import { createTrackedJournalOpener } from '../native-chat/agent-session-journal/journal-host-database-test-support'
 import { createDeferredStructuredAgentSessionEventSink } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
 import { createClaudeJournalTranslator } from './claude-structured-journal-translation'
 import { claudeSubagentGroupBody, claudeSubagentGroupIdentity } from './claude-subagent-group-row'
@@ -131,7 +131,7 @@ async function openJournal(): Promise<AgentSessionJournal> {
       providerHandle: { kind: 'claude', sessionId: 'claude-session', leafUuid: null }
     },
     now: () => 9_000,
-    journalDir: join(root, 'orca-session')
+    stateDirectory: root
   })
 }
 
