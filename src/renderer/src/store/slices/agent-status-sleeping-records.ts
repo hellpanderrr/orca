@@ -18,7 +18,9 @@ export function copyLaunchConfig(config: SleepingAgentLaunchConfig): SleepingAge
     ...(config.agentCommand ? { agentCommand: config.agentCommand } : {}),
     agentArgs: config.agentArgs,
     agentEnv: { ...config.agentEnv },
-    ...(config.ompResumeFilePath ? { ompResumeFilePath: config.ompResumeFilePath } : {})
+    ...(config.ompResumeFilePath ? { ompResumeFilePath: config.ompResumeFilePath } : {}),
+    ...(config.quickCommandId ? { quickCommandId: config.quickCommandId } : {}),
+    ...(config.quickCommandLabel ? { quickCommandLabel: config.quickCommandLabel } : {})
   }
 }
 
@@ -48,6 +50,19 @@ export function sleepingRecordFromEntry(args: {
     ...(tab ? { tabId: tab.id } : {}),
     worktreeId: args.worktreeId,
     agent,
+    // Why: quick-launched agent tabs (terminal-command Quick Commands like
+    // `ccr muse --resume`) must resume through the same user command, not the
+    // stock CLI. launchConfig carries the label when the tab was queued with
+    // one; otherwise fall back to the tab's own persisted label.
+    ...((args.launchConfig?.quickCommandLabel ?? tab?.quickCommandLabel)
+      ? {
+          ...(args.launchConfig?.quickCommandId
+            ? { quickCommandId: args.launchConfig.quickCommandId }
+            : {}),
+          quickCommandLabel: (args.launchConfig?.quickCommandLabel ??
+            tab?.quickCommandLabel) as string
+        }
+      : {}),
     providerSession: args.entry.providerSession,
     ...(args.entry.connectionId !== undefined ? { connectionId: args.entry.connectionId } : {}),
     prompt: args.entry.prompt,

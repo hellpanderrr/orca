@@ -22,6 +22,12 @@ export function buildAgentResumeStartupPlan(args: {
   agentEnv?: Record<string, string> | null
   agentCommand?: string | null
   ompResumeFilePath?: string | null
+  /** Why: a terminal-command Quick Command wrapper (e.g. `ccr muse`) that
+   *  spawned this tab, resolved to its CURRENT text at resume time. Wins over
+   *  agentCommand/cmdOverrides so the restored tab keeps the user's route. */
+  quickCommandText?: string | null
+  quickCommandId?: string | null
+  quickCommandLabel?: string | null
   sessionOptions?: Record<string, SessionOptionValue>
   sessionOptionsOverrideAgentArgs?: boolean
   isRemote?: boolean
@@ -31,7 +37,8 @@ export function buildAgentResumeStartupPlan(args: {
     return null
   }
   const shell = resolveStartupShell(args.platform, args.shell)
-  const resolvedAgentCommand = args.agentCommand?.trim()
+  const resolvedQuickCommandText = args.quickCommandText?.trim()
+  const resolvedAgentCommand = resolvedQuickCommandText || args.agentCommand?.trim()
   const baseCommand = resolvedAgentCommand
     ? ({
         ok: true,

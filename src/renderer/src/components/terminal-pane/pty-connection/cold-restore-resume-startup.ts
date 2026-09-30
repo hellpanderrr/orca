@@ -1,4 +1,5 @@
 import { useAppStore } from '@/store'
+import { resolveQuickCommandResumeText } from '../../../../../shared/quick-command-resume'
 import { createBrowserUuid } from '@/lib/browser-uuid'
 import { buildAgentResumeStartupPlan } from '@/lib/tui-agent-startup'
 import { resolveAgentResumeLaunchTarget } from '@/lib/agent-resume-launch-target'
@@ -80,6 +81,24 @@ export function bindBuildColdRestoreAgentResumeStartup(session: ConnectPanePtySe
       terminalWindowsShell: state.settings?.terminalWindowsShell,
       tabShellOverride: session.shellOverride
     })
+    // Why: a terminal-command Quick Command that spawned this tab
+    // (`ccr muse --resume`) must resume through the same user command text,
+    // resolved live so later Quick Command edits apply; absent/stale refs
+    // fall back to the stock agent command below.
+    const quickCommandText = resolveQuickCommandResumeText(
+      state.settings?.terminalQuickCommands,
+      launchConfig
+        ? {
+            quickCommandId: launchConfig.quickCommandId,
+            quickCommandLabel: launchConfig.quickCommandLabel
+          }
+        : sleepingRecord
+          ? {
+              quickCommandId: sleepingRecord.quickCommandId,
+              quickCommandLabel: sleepingRecord.quickCommandLabel
+            }
+          : null
+    )
     const startupPlan = buildAgentResumeStartupPlan({
       agent,
       providerSession,
@@ -95,6 +114,14 @@ export function bindBuildColdRestoreAgentResumeStartup(session: ConnectPanePtySe
       ...(launchConfig?.agentCommand ? { agentCommand: launchConfig.agentCommand } : {}),
       ...(launchConfig?.ompResumeFilePath
         ? { ompResumeFilePath: launchConfig.ompResumeFilePath }
+        : {}),
+      ...(quickCommandText ? { quickCommandText } : {}),
+      ...(launchConfig?.quickCommandId ? { quickCommandId: launchConfig.quickCommandId } : {}),
+      ...((launchConfig?.quickCommandLabel ?? sleepingRecord?.quickCommandLabel)
+        ? {
+            quickCommandLabel: (launchConfig?.quickCommandLabel ??
+              sleepingRecord?.quickCommandLabel) as string
+          }
         : {}),
       platform: resumeTarget.platform,
       shell: resumeTarget.shell

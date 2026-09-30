@@ -108,7 +108,17 @@ export function runQuickCommandInNewTab({
   })
 
   store.queueTabStartupCommand(tab.id, {
-    command: flattenTerminalQuickCommand(command).command
+    command: flattenTerminalQuickCommand(command).command,
+    // Why: a terminal-command Quick Command may wrap an agent CLI
+    // (`ccr muse --resume`); resume paths read this to re-run the same user
+    // command instead of the stock agent binary. Text is resolved at resume
+    // time so later edits to the Quick Command still apply.
+    launchConfig: {
+      agentArgs: '',
+      agentEnv: {},
+      quickCommandId: command.id,
+      quickCommandLabel: command.label
+    }
   })
 
   // Why: match `+` button's createNewTerminalTab — without this, a worktree

@@ -63,6 +63,17 @@ const sleepingAgentLaunchEnvSchema = z.preprocess(
   z.record(z.string(), z.string())
 )
 
+// Why: the persisted Quick Command id/label that launched the tab (a
+// terminal-command wrapper like `ccr muse --resume`), so restore can re-run
+// the same user command instead of the stock agent CLI.
+const quickCommandRefSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(80)
+  .refine((value) => !hasUnsafeLaunchEnvChars(value))
+  .optional()
+
 const sleepingAgentLaunchConfigBaseSchema = z.object({
   agentCommand: z.string().optional(),
   agentArgs: z.string(),
@@ -75,7 +86,9 @@ const sleepingAgentLaunchConfigBaseSchema = z.object({
     .min(1)
     .max(32 * 1024)
     .refine((value) => !hasUnsafeLaunchEnvChars(value))
-    .optional()
+    .optional(),
+  quickCommandId: quickCommandRefSchema,
+  quickCommandLabel: quickCommandRefSchema
 })
 
 export const sleepingAgentLaunchConfigSchema = z.preprocess((raw) => {
@@ -101,6 +114,8 @@ const sleepingAgentSessionRecordSchema = z
     mainAgent: z.unknown().transform(normalizeMainAgentStatusField).optional(),
     connectionId: z.string().nullable().optional(),
     launchConfig: sleepingAgentLaunchConfigSchema.optional(),
+    quickCommandId: quickCommandRefSchema,
+    quickCommandLabel: quickCommandRefSchema,
     origin: z.enum(['worktree-sleep', 'quit', 'live']).optional(),
     restoreOnTabOpenOnly: z.boolean().optional()
   })
