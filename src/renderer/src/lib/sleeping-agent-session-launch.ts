@@ -153,7 +153,12 @@ export function launchSleepingAgentSession(
       launchConfig: startupPlan.launchConfig,
       resumeProviderSession: record.providerSession,
       launchAgent: record.agent,
-      ...(launchConfig ? { agentArgsOverride: startupPlan.launchConfig.agentArgs } : {}),
+      // Why: a stamp-only config's empty args are placeholders; omitting the
+      // override lets a runtime host (which rebuilds stock, not the wrapper)
+      // apply its own default args.
+      ...(launchConfig && !isQuickCommandStampOnlyLaunchConfig(launchConfig)
+        ? { agentArgsOverride: launchConfig.agentArgs }
+        : {}),
       ...(startupPlan.startupCommandDelivery
         ? { startupCommandDelivery: startupPlan.startupCommandDelivery }
         : {}),

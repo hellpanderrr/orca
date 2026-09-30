@@ -641,6 +641,18 @@ describe('buildAgentResumeStartupPlan claude selector guard', () => {
     expect(restored?.launchCommand).toBe(`wrap -c k=v '--resume' '${SESSION_ID}'`)
   })
 
+  it("strips copilot's joined --resume= form from its wrapper", () => {
+    const restored = buildAgentResumeStartupPlan({
+      agent: 'copilot',
+      providerSession,
+      cmdOverrides: {},
+      quickCommandText: 'wrap --resume=stale -c k=v',
+      platform: 'linux'
+    })
+    expect(restored?.launchCommand).not.toContain('stale')
+    expect(restored?.launchCommand).toContain('wrap -c k=v')
+  })
+
   it('applies the stamp fallback defaults when the wrapper cannot be used', () => {
     const restored = buildAgentResumeStartupPlan({
       agent: 'claude',

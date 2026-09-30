@@ -13,6 +13,19 @@ import type { TuiAgent } from './tui-agent'
 import { buildAgentResumeLaunchCommand } from './agent-resume-launch-command'
 import { isWrapperTextSafeToAppendResume, stripStaleResumeSelectors } from './quick-command-resume'
 
+// `[bin, '--resume', id]` → `--resume`; `[bin, '--resume=id']` (copilot) →
+// `--resume`; subcommand resumes (`codex resume <id>`) have no flag.
+function resolveAgentResumeFlag(argv: readonly string[]): string | undefined {
+  const flag = argv.at(-2)
+  if (flag?.startsWith('-')) {
+    return flag
+  }
+  const joined = argv.at(-1)
+  return joined?.startsWith('-') && joined.includes('=')
+    ? joined.slice(0, joined.indexOf('='))
+    : undefined
+}
+
 export function buildAgentResumeStartupPlan(args: {
   agent: ResumableTuiAgent
   providerSession: AgentProviderSessionMetadata
@@ -53,12 +66,12 @@ export function buildAgentResumeStartupPlan(args: {
   // Why: claude strips every selector shape its guard knows; other agents
   // strip only their own resume flag (`--resume`, `--session`, …), and
   // subcommand-style resumes (codex `resume <id>`) strip nothing.
-  const agentResumeFlag = argv.at(-2)
+  const agentResumeFlag = resolveAgentResumeFlag(argv)
   const resolvedQuickCommandText =
     trimmedQuickCommandText && isWrapperTextSafeToAppendResume(trimmedQuickCommandText, shell)
       ? args.agent === 'claude'
         ? stripStaleResumeSelectors(trimmedQuickCommandText, shell)
-        : agentResumeFlag?.startsWith('-')
+        : agentResumeFlag
           ? stripStaleResumeSelectors(trimmedQuickCommandText, shell, agentResumeFlag)
           : trimmedQuickCommandText
       : ''
