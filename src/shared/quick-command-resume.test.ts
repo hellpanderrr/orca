@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   isAgentLikeQuickCommandText,
   isPersistableQuickCommandRef,
+  isWrapperTextSafeToAppendResume,
   resolveQuickCommandResumeText,
   stripStaleResumeSelectors
 } from './quick-command-resume'
@@ -146,6 +147,43 @@ describe('stripStaleResumeSelectors', () => {
     expect(stripStaleResumeSelectors('ccr muse --model sonnet', 'posix')).toBe(
       'ccr muse --model sonnet'
     )
+  })
+
+  it.each([
+    'ccr muse --resume && echo hi',
+    'ccr muse --resume | tee log.txt',
+    'ccr muse --resume ; echo hi',
+    'ccr muse --resume $(cat sid)',
+    'ccr muse --resume # note'
+  ])('fails open byte-for-byte on shell syntax: %s', (command) => {
+    // Why: without the diverging-span bail the operand absorption eats `&&`
+    // or `|` as if it were the stale session id, silently deleting the
+    // operator (`ccr muse --resume $(cat sid)` collapsed to `ccr muse sid)`).
+    expect(stripStaleResumeSelectors(command, 'posix')).toBe(command)
+  })
+})
+
+describe('isWrapperTextSafeToAppendResume', () => {
+  it('accepts plain wrapper text and lets the resume selector be appended', () => {
+    expect(
+      isWrapperTextSafeToAppendResume('ccr muse --dangerously-skip-permissions', 'posix')
+    ).toBe(true)
+    expect(isWrapperTextSafeToAppendResume('ccr muse --resume stale-id', 'posix')).toBe(true)
+  })
+
+  it.each([
+    ['ccr muse --resume && echo hi', 'posix'],
+    ['ccr muse --resume | tee log.txt', 'posix'],
+    ['ccr muse --resume $(cat sid)', 'posix'],
+    ['ccr muse --resume # note', 'posix']
+  ] as const)('rejects shell syntax so the append cannot misfire: %s (%s)', (command, shell) => {
+    // Why: the appended `--resume <sid>` lands after `&&`/`|`, i.e. on the
+    // LAST command, not the agent — the caller must fall back to stock.
+    expect(isWrapperTextSafeToAppendResume(command, shell)).toBe(false)
+  })
+
+  it('rejects unmodelable text (unterminated quote)', () => {
+    expect(isWrapperTextSafeToAppendResume("ccr muse --flag 'unterminated", 'posix')).toBe(false)
   })
 })
 

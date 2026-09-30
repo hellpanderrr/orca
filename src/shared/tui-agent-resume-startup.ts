@@ -11,7 +11,7 @@ import { resolveStartupShell, type AgentStartupShell } from './tui-agent-startup
 import { TUI_AGENT_CONFIG } from './tui-agent-config'
 import type { TuiAgent } from './tui-agent'
 import { buildAgentResumeLaunchCommand } from './agent-resume-launch-command'
-import { stripStaleResumeSelectors } from './quick-command-resume'
+import { isWrapperTextSafeToAppendResume, stripStaleResumeSelectors } from './quick-command-resume'
 
 export function buildAgentResumeStartupPlan(args: {
   agent: ResumableTuiAgent
@@ -42,9 +42,13 @@ export function buildAgentResumeStartupPlan(args: {
   // fallback command — if the Quick Command is later deleted, resolvers
   // return null and resume must fall back to stock, not replay a cached
   // copy of the deleted text (which agentCommand would otherwise keep).
-  const resolvedQuickCommandText = args.quickCommandText?.trim()
-    ? stripStaleResumeSelectors(args.quickCommandText.trim(), shell)
-    : ''
+  // The append-safety gate keeps shell syntax (`ccr muse --resume && notify`)
+  // from receiving the appended session id as its LAST command's argument.
+  const trimmedQuickCommandText = args.quickCommandText?.trim() ?? ''
+  const resolvedQuickCommandText =
+    trimmedQuickCommandText && isWrapperTextSafeToAppendResume(trimmedQuickCommandText, shell)
+      ? stripStaleResumeSelectors(trimmedQuickCommandText, shell)
+      : ''
   const resolvedAgentCommand = args.agentCommand?.trim()
   const baseCommand = resolvedQuickCommandText
     ? ({

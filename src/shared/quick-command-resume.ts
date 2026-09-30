@@ -210,6 +210,35 @@ export function resolveQuickCommandResumeText(
 const STALE_RESUME_SELECTOR_RE = /^(--resume|--continue|-r|-c)(=.*)?$/
 
 /**
+ * Why: `buildAgentResumeStartupPlan` appends the resume selector at the END of
+ * the wrapper text. After shell syntax (`ccr muse --resume && notify`) that
+ * attaches to the LAST command, not the agent — same hazard as the multiline
+ * rejection above. Operators, expansions, comments and cmd single-quote
+ * regions are exactly the spans the tokenizer flags `divergesFromShell`;
+ * PowerShell's leading `&` call operator is the one known-safe divergence,
+ * mirroring the claude resume guard (agent-resume-launch-command.ts).
+ */
+export function isWrapperTextSafeToAppendResume(command: string, shell: AgentStartupShell): boolean {
+  const tokenized = tokenizeStartupCommand(command, shell)
+  if (!tokenized.ok) {
+    return false
+  }
+  const { tokens, spans } = tokenized
+  for (let i = 0; i < spans.length; i += 1) {
+    const isCallOperator = shell === 'powershell' && i === 0 && tokens[i] === '&'
+    if (spans[i].divergesFromShell && !isCallOperator) {
+      return false
+    }
+    // Why: a bare `--%` makes PowerShell pass the rest of the line to the
+    // child literally, so the appended selector would arrive as literal bytes.
+    if (shell === 'powershell' && command.slice(spans[i].start, spans[i].end) === '--%') {
+      return false
+    }
+  }
+  return true
+}
+
+/**
  * Why: a wrapper Quick Command can carry a stale or bare resume selector
  * (`ccr muse --resume old-session`, or a bare `--resume` picker default).
  * That selector can never compete with the authoritative provider session id
@@ -226,14 +255,27 @@ export function stripStaleResumeSelectors(command: string, shell: AgentStartupSh
     return command
   }
   const { tokens, spans } = tokenized
-  // Why: same splice-safety rule as the claude guard — the text between
-  // tokens must be plain whitespace, or cutting spans could mangle live
-  // shell syntax.
+  // Why: same splice-safety rules as the claude guard — the text between
+  // tokens must be plain whitespace, AND any token the tokenizer cannot model
+  // for this shell (operator, expansion, comment, cmd single-quoted region)
+  // means cutting spans could delete live shell syntax — the operand
+  // absorption below would swallow it as if it were the stale session id.
   for (let i = 0; i <= tokens.length; i += 1) {
     const gapStart = i === 0 ? 0 : spans[i - 1].end
     const gapEnd = i === tokens.length ? command.length : spans[i].start
     if (!/^[ \t]*$/.test(command.slice(gapStart, gapEnd))) {
       return command
+    }
+    if (i < tokens.length) {
+      const isCallOperator = shell === 'powershell' && i === 0 && tokens[i] === '&'
+      if (spans[i].divergesFromShell && !isCallOperator) {
+        return command
+      }
+      // Why: a bare `--%` makes PowerShell pass the rest of the line to the
+      // child literally, so a later selector is not selectors at all.
+      if (shell === 'powershell' && command.slice(spans[i].start, spans[i].end) === '--%') {
+        return command
+      }
     }
   }
   const cuts: { start: number; end: number }[] = []
