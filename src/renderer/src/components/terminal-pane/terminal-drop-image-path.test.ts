@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { formatImageDropPathForBracketedPaste, isImageDropPath } from './terminal-drop-image-path'
+import type { TerminalTargetShell } from './terminal-drop-shell'
 
 describe('isImageDropPath', () => {
   it('detects common image extensions case-insensitively', () => {
@@ -39,17 +40,21 @@ describe('isImageDropPath', () => {
 
 // Why: small replays of how agents recover a path from pasted text, so the
 // escaping is checked against what they actually accept.
+function stripOuterQuotes(pasted: string): string {
+  return pasted.replace(/^(['"])(.*)\1$/s, '$2')
+}
+
 // Claude Code: strip one pair of surrounding quotes, then unescape backslashes
-// except on win32, where backslashes are separators.
-function claudeCodeRecoverPath(pasted: string, platform: 'posix' | 'win32'): string {
-  const unquoted = pasted.replace(/^(['"])(.*)\1$/s, '$2')
-  return platform === 'win32' ? unquoted : unquoted.replace(/\\(.)/gs, '$1')
+// except on Windows, where backslashes are separators.
+function claudeCodeRecoverPath(pasted: string, shell: TerminalTargetShell): string {
+  const unquoted = stripOuterQuotes(pasted)
+  return shell === 'windows' ? unquoted : unquoted.replace(/\\(.)/gs, '$1')
 }
 
 // Codex `normalize_pasted_path`: drive/UNC paths skip shlex once one outer quote
 // pair is stripped; anything else must be a single POSIX shlex token.
 function codexRecoverPath(pasted: string): string | null {
-  const unquoted = pasted.trim().replace(/^(['"])(.*)\1$/s, '$2')
+  const unquoted = stripOuterQuotes(pasted)
   if (/^([a-z]:[\\/]|\\\\)/i.test(unquoted)) {
     return unquoted
   }
@@ -156,7 +161,7 @@ describe('formatImageDropPathForBracketedPaste', () => {
     if (pasted === null) {
       throw new Error(`Expected a bracketed-paste representation for ${path}`)
     }
-    expect(claudeCodeRecoverPath(pasted, 'win32')).toBe(path)
+    expect(claudeCodeRecoverPath(pasted, 'windows')).toBe(path)
     expect(codexRecoverPath(pasted)).toBe(path)
   })
 
