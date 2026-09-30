@@ -3,38 +3,28 @@
 _Updated 2026-09-30 — branch quick-command-agent-resume_
 
 ## State
-PR stablyai/orca#23995 is draft. Pushed head is `61a55e1d`; 4 LOCAL commits sit on top
-(`5adabc19` append-safety fix + 3 NEXT.md updates) — nothing pushed since. 146 tests pass
-across the 3 PR suites, typecheck 0, quality gate 0 findings, shim chain verified.
-Local Orca fix is LIVE: shims in `AppData\Local\nvm\v23.11.1\{claude,claude.cmd,claude.ps1}`
-route every spawn through `~/bin/orca-claude-dispatch.js` (map: 8 sessions resolve, was 3).
+PR stablyai/orca#23995 is draft. Pushed head `61a55e1d`; 12 LOCAL commits on top (review
+fixes + NEXT.md), nothing pushed. PR suites + terminal-pane/agent-status (1170) pass,
+typecheck 0, quality gate 0. New PR body drafted at `F:\temp\pr-23995-body.md` (not applied).
+Local Orca shim (`~/bin/orca-claude-dispatch.js`) is live for the installed app.
 
 ## Open threads
-- Restart Orca, confirm a preset tab restores on the right route: dispatcher log
-  (`~/.orca/orca-claude-dispatch.log`) must show `preset=... via=...` and `/status` inside
-  the tab must show `<host>/preset/<name>`.
-- Update PR #23995 body (stale pre-existing-failure claim) before undraft; needs user order.
-- Push `5adabc19` (+3 NEXT.md commits) only on user order.
+- On user order: push, then `gh pr edit 23995 --repo stablyai/orca --body-file F:/temp/pr-23995-body.md`.
+- Real-app check: restart Orca, confirm a `ccr` Quick Command tab resumes via the wrapper.
+- Optional cleanup: `resolveAgentResumeFlag` (tui-agent-resume-startup.ts) re-derives the
+  selector from argv position; a `getAgentResumeSelector` next to `getAgentResumeArgv` is safer.
 
 ## Running / unfinished
-- After ANY claude update run `node ~/bin/orca-claude-shim-install.js` — `npm i -g` rewrites
-  the three launcher files and silently unwraps the interception; `--check` exits 1 when a
-  shim is clobbered.
-- `~/bin/orca-claude-shim-install.js --uninstall` reverts to originals in
-  `~/bin/orca-claude-shims-backup/*.orig`.
-- 4 live sessions resolve to none (plain-Claude transcripts — correct fallback). 4 no-session
-  tab records also unresolved.
+- After ANY claude update: `node ~/bin/orca-claude-shim-install.js` (npm rewrites the shims;
+  `--check` exits 1 when clobbered). `--uninstall` restores originals.
 
 ## Don't redo
-- Shim dir must be `nvm\v23.11.1` (= `C:\nvm4w\nodejs`), NOT `.local\bin`: machine PATH
-  `C:\nvm4w\nodejs` outranks every user PATH entry. Settings override route is dead: installed
-  1.4.215 reads persisted `agentCommand` before `agentCmdOverrides`, and 6/13 live sleeping
-  records carry it.
-- Preset ID needs the WHOLE transcript scanned (post-restore tails are all claude-*); match
-  the last `/`-segment too (`meta/muse-spark-1.3-contributor` vs `cline-free/…`).
-- ccr spawns claude with `--settings <tmp.json>`; dispatcher must pass that through to the
-  real binary or ccr nests inside ccr.
-- Renderer failures were real payload assertions, not the alias issue. cwd-based wrapper
-  routing is dead (mixed presets per worktree). `gh pr edit --draft` unsupported — use
-  `gh pr ready --undo`.
-- Lessons/ISSUES files skipped: this repo has no docs/LESSONS.md or docs/ISSUES.md.
+- NEVER run `pnpm format` — it rewrote line endings on ~26k files. Use
+  `pnpm exec oxfmt <changed files>`.
+- Known limits, deliberately not fixed (listed in PR body): QC run in existing tab, remote
+  runtime / other-host QCs, AI Vault, hand-started agent in wrapper tab. Agent-type stamping
+  (finding 4 partial) was tried and reverted in `72b37d22` — side effects on pane identity.
+- All remaining local test failures fail identically on `main` (ACL, palette timing, omp
+  shell, git lock, loose-ref, text-search, automation jobs, relay dependency).
+- Shim dir must be `nvm\v23.11.1` (machine PATH wins); settings override route is dead
+  (installed app reads persisted `agentCommand` first).
