@@ -5,6 +5,7 @@ import {
 import type { TerminalQuickCommand } from './terminal-quick-command-types'
 import { tokenizeStartupCommand, type AgentStartupShell } from './tui-agent-startup-shell'
 import type { SleepingAgentLaunchConfig } from './agent-session-resume'
+import { recognizeAgentProcessFromCommandLine } from './agent-process-recognition'
 
 /**
  * Why this file exists: a terminal-command Quick Command can launch an agent
@@ -173,6 +174,22 @@ export function isAgentLikeQuickCommandText(command: string): boolean {
  * real launch inputs; a stamp-only one must not suppress the user's defaults
  * when the wrapper cannot be used.
  */
+/**
+ * Why: a Quick Command stamp carries no launchAgent, so its registry entry
+ * would match any agent later started in the pane (the launch token lives in
+ * the shell env). Name the agent when the command text starts with one;
+ * wrappers like `ccr` stay unnamed.
+ */
+export function recognizeQuickCommandStampAgent(startup: {
+  command: string
+  launchConfig?: SleepingAgentLaunchConfig
+}) {
+  if (!startup.launchConfig?.quickCommandId && !startup.launchConfig?.quickCommandLabel) {
+    return undefined
+  }
+  return recognizeAgentProcessFromCommandLine(startup.command)?.agent
+}
+
 export function isQuickCommandStampOnlyLaunchConfig(
   config: SleepingAgentLaunchConfig | undefined
 ): boolean {
@@ -201,6 +218,12 @@ export function resolveQuickCommandResumeText(
   // Why id first: the id is stable across edits of the command body, while
   // labels are not unique.
   const byId = id ? inScope.find((command) => command.id === id) : undefined
+  // Why: UI-created ids are unique UUIDs, so a stored id that no longer
+  // resolves means the command was deleted — a same-label replacement is a
+  // different command, not a rename. Only label-only refs use the label.
+  if (id && !byId) {
+    return null
+  }
   // Why uniqueness on the label path: a label-only ref must never pick one of
   // several same-label commands (possibly scoped to another repo) at random —
   // ambiguity resolves to the stock fallback, not a guess.

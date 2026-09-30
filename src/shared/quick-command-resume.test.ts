@@ -3,6 +3,7 @@ import {
   isAgentLikeQuickCommandText,
   isPersistableQuickCommandRef,
   isQuickCommandStampOnlyLaunchConfig,
+  recognizeQuickCommandStampAgent,
   isWrapperTextSafeToAppendResume,
   resolveQuickCommandResumeText,
   stripStaleResumeSelectors
@@ -83,10 +84,19 @@ describe('resolveQuickCommandResumeText', () => {
     expect(resolveQuickCommandResumeText(COMMANDS, { quickCommandLabel: 'muse' })).toBeNull()
   })
 
-  it('falls back to a unique label when the id is gone (renamed command)', () => {
+  it('resolves a label-only ref by its unique label', () => {
     expect(resolveQuickCommandResumeText(COMMANDS, { quickCommandLabel: 'mimo' })).toBe(
       'ccr cline-mimo --dangerously-skip-permissions --resume'
     )
+  })
+
+  it('does not fall back to a same-label command when the stored id is gone', () => {
+    expect(
+      resolveQuickCommandResumeText(COMMANDS, {
+        quickCommandId: 'quick-command-deleted',
+        quickCommandLabel: 'mimo'
+      })
+    ).toBeNull()
   })
 
   it('scopes label resolution to the requesting repo', () => {
@@ -243,5 +253,20 @@ describe('isPersistableQuickCommandRef', () => {
     expect(isPersistableQuickCommandRef('   ')).toBe(false)
     expect(isPersistableQuickCommandRef('x'.repeat(81))).toBe(false)
     expect(isPersistableQuickCommandRef(undefined)).toBe(false)
+  })
+})
+
+describe('recognizeQuickCommandStampAgent', () => {
+  const stamp = { agentArgs: '', agentEnv: {}, quickCommandId: 'q' }
+
+  it('names the agent a Quick Command launches directly', () => {
+    expect(recognizeQuickCommandStampAgent({ command: 'codex', launchConfig: stamp })).toBe('codex')
+  })
+
+  it('leaves wrappers and unstamped startups unnamed', () => {
+    expect(
+      recognizeQuickCommandStampAgent({ command: 'ccr muse --resume', launchConfig: stamp })
+    ).toBeUndefined()
+    expect(recognizeQuickCommandStampAgent({ command: 'codex' })).toBeUndefined()
   })
 })

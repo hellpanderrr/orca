@@ -8,6 +8,7 @@ import {
   type SleepingAgentSessionRecord
 } from '../../../../../shared/agent-session-resume'
 import { recognizeAgentProcessFromCommandLine } from '../../../../../shared/agent-process-recognition'
+import { recognizeQuickCommandStampAgent } from '../../../../../shared/quick-command-resume'
 import type { TuiAgent } from '../../../../../shared/tui-agent'
 import { TUI_AGENT_CONFIG } from '../../../../../shared/tui-agent-config'
 import {
@@ -140,7 +141,10 @@ export function installSleepingRecordAccess(session: ConnectPanePtySession): voi
     useAppStore
       .getState()
       .registerAgentLaunchConfig(session.cacheKey, session.paneStartup.launchConfig, {
-        agentType: session.paneStartup.launchAgent ?? session.paneStartup.initialAgentStatus?.agent,
+        agentType:
+          session.paneStartup.launchAgent ??
+          session.paneStartup.initialAgentStatus?.agent ??
+          recognizeQuickCommandStampAgent(session.paneStartup),
         ...(session.launchToken ? { launchToken: session.launchToken } : {}),
         tabId: session.deps.tabId,
         leafId: session.pane.leafId
@@ -173,7 +177,8 @@ export function installSleepingRecordAccess(session: ConnectPanePtySession): voi
         metadata?.launchAgent ??
         session.paneStartup?.launchAgent ??
         session.paneStartup?.initialAgentStatus?.agent ??
-        persistedLaunchAgent,
+        persistedLaunchAgent ??
+        (session.paneStartup ? recognizeQuickCommandStampAgent(session.paneStartup) : undefined),
       ...((metadata?.launchToken ?? session.launchToken)
         ? { launchToken: metadata?.launchToken ?? session.launchToken }
         : {}),
