@@ -154,6 +154,15 @@ describe('stripStaleResumeSelectors', () => {
     ).toBe('ccr muse --dangerously-skip-permissions')
   })
 
+  it('strips only the given resume flag for non-claude agents', () => {
+    expect(stripStaleResumeSelectors('wrap -c key=v -r x --resume old', 'posix', '--resume')).toBe(
+      'wrap -c key=v -r x'
+    )
+    expect(stripStaleResumeSelectors('wrap --session=old -c k=v', 'posix', '--session')).toBe(
+      'wrap -c k=v'
+    )
+  })
+
   it('leaves non-selector text untouched', () => {
     expect(stripStaleResumeSelectors('ccr muse --model sonnet', 'posix')).toBe(
       'ccr muse --model sonnet'

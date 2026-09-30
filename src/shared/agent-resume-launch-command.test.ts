@@ -630,6 +630,17 @@ describe('buildAgentResumeStartupPlan claude selector guard', () => {
     expect(restored?.launchCommand).toContain('codex -c model_reasoning_effort=high')
   })
 
+  it("strips a non-claude wrapper's own stale resume flag but keeps -c", () => {
+    const restored = buildAgentResumeStartupPlan({
+      agent: 'codebuddy',
+      providerSession,
+      cmdOverrides: {},
+      quickCommandText: 'wrap -c k=v --resume stale',
+      platform: 'linux'
+    })
+    expect(restored?.launchCommand).toBe(`wrap -c k=v '--resume' '${SESSION_ID}'`)
+  })
+
   it('applies the stamp fallback defaults when the wrapper cannot be used', () => {
     const restored = buildAgentResumeStartupPlan({
       agent: 'claude',

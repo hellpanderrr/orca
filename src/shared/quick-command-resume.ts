@@ -291,7 +291,13 @@ export function isWrapperTextSafeToAppendResume(
  * Fails open: unmodelable text (operators, expansions, unterminated quotes)
  * returns byte-for-byte untouched.
  */
-export function stripStaleResumeSelectors(command: string, shell: AgentStartupShell): string {
+export function stripStaleResumeSelectors(
+  command: string,
+  shell: AgentStartupShell,
+  // Why: for non-claude agents only their own resume flag is a selector —
+  // their `-c`/`-r` mean something else (codex `-c key=value`).
+  resumeFlag?: string
+): string {
   const tokenized = tokenizeStartupCommand(command, shell)
   if (!tokenized.ok) {
     return command
@@ -323,14 +329,18 @@ export function stripStaleResumeSelectors(command: string, shell: AgentStartupSh
   const cuts: { start: number; end: number }[] = []
   for (let i = 0; i < tokens.length; i += 1) {
     const token = tokens[i]
-    if (!STALE_RESUME_SELECTOR_RE.test(token)) {
+    const isSelector = resumeFlag
+      ? token === resumeFlag || token.startsWith(`${resumeFlag}=`)
+      : STALE_RESUME_SELECTOR_RE.test(token)
+    if (!isSelector) {
       continue
     }
     let endIndex = i
-    // Why: only `--resume`/`-r` take a separate session-id operand;
-    // `--continue`/`-c` are bare flags. Mirrors the claude guard.
+    // Why: only `--resume`/`-r` (or the agent's own flag) take a separate
+    // session-id operand; `--continue`/`-c` are bare flags. Mirrors the claude guard.
     const next = tokens[i + 1]
-    if ((token === '--resume' || token === '-r') && next !== undefined && !next.startsWith('-')) {
+    const takesOperand = resumeFlag ? token === resumeFlag : token === '--resume' || token === '-r'
+    if (takesOperand && next !== undefined && !next.startsWith('-')) {
       endIndex = i + 1
     }
     let start = spans[i].start

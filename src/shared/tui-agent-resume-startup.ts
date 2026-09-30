@@ -50,13 +50,17 @@ export function buildAgentResumeStartupPlan(args: {
   // The append-safety gate keeps shell syntax (`ccr muse --resume && notify`)
   // from receiving the appended session id as its LAST command's argument.
   const trimmedQuickCommandText = args.quickCommandText?.trim() ?? ''
-  // Stale-selector stripping is claude-only, like the claude resume guard:
-  // for other agents `-c`/`-r` mean something else (codex `-c key=value`).
+  // Why: claude strips every selector shape its guard knows; other agents
+  // strip only their own resume flag (`--resume`, `--session`, …), and
+  // subcommand-style resumes (codex `resume <id>`) strip nothing.
+  const agentResumeFlag = argv.at(-2)
   const resolvedQuickCommandText =
     trimmedQuickCommandText && isWrapperTextSafeToAppendResume(trimmedQuickCommandText, shell)
       ? args.agent === 'claude'
         ? stripStaleResumeSelectors(trimmedQuickCommandText, shell)
-        : trimmedQuickCommandText
+        : agentResumeFlag?.startsWith('-')
+          ? stripStaleResumeSelectors(trimmedQuickCommandText, shell, agentResumeFlag)
+          : trimmedQuickCommandText
       : ''
   const useQuickCommandFallbackDefaults =
     !resolvedQuickCommandText &&
