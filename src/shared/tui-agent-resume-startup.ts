@@ -29,6 +29,11 @@ export function buildAgentResumeStartupPlan(args: {
   quickCommandText?: string | null
   quickCommandId?: string | null
   quickCommandLabel?: string | null
+  /** Why: a Quick Command stamp records empty args/env because the wrapper
+   *  text is complete. When the wrapper cannot be used, the stock command
+   *  must still get the user's defaults, like any unstamped tab. */
+  quickCommandFallbackAgentArgs?: string | null
+  quickCommandFallbackAgentEnv?: Record<string, string> | null
   sessionOptions?: Record<string, SessionOptionValue>
   sessionOptionsOverrideAgentArgs?: boolean
   isRemote?: boolean
@@ -45,10 +50,24 @@ export function buildAgentResumeStartupPlan(args: {
   // The append-safety gate keeps shell syntax (`ccr muse --resume && notify`)
   // from receiving the appended session id as its LAST command's argument.
   const trimmedQuickCommandText = args.quickCommandText?.trim() ?? ''
+  // Stale-selector stripping is claude-only, like the claude resume guard:
+  // for other agents `-c`/`-r` mean something else (codex `-c key=value`).
   const resolvedQuickCommandText =
     trimmedQuickCommandText && isWrapperTextSafeToAppendResume(trimmedQuickCommandText, shell)
-      ? stripStaleResumeSelectors(trimmedQuickCommandText, shell)
+      ? args.agent === 'claude'
+        ? stripStaleResumeSelectors(trimmedQuickCommandText, shell)
+        : trimmedQuickCommandText
       : ''
+  const useQuickCommandFallbackDefaults =
+    !resolvedQuickCommandText &&
+    (args.quickCommandFallbackAgentArgs !== undefined ||
+      args.quickCommandFallbackAgentEnv !== undefined)
+  const agentArgs = useQuickCommandFallbackDefaults
+    ? args.quickCommandFallbackAgentArgs
+    : args.agentArgs
+  const agentEnv = useQuickCommandFallbackDefaults
+    ? args.quickCommandFallbackAgentEnv
+    : args.agentEnv
   const resolvedAgentCommand = args.agentCommand?.trim()
   const baseCommand = resolvedQuickCommandText
     ? ({
@@ -69,7 +88,7 @@ export function buildAgentResumeStartupPlan(args: {
           cmdOverrides: args.cmdOverrides,
           platform: args.platform,
           shell,
-          agentArgs: args.agentArgs,
+          agentArgs,
           sessionOptions: args.sessionOptions,
           sessionOptionsOverrideAgentArgs: args.sessionOptionsOverrideAgentArgs,
           isRemote: args.isRemote
@@ -79,6 +98,8 @@ export function buildAgentResumeStartupPlan(args: {
   }
   const launchConfig = buildSleepingAgentLaunchConfig({
     ...args,
+    agentArgs,
+    agentEnv,
     // Why: `...args` carries quickCommandId/Label already; agentCommand here
     // is ONLY the stock fallback (never wrapper text), so a deleted Quick
     // Command retires its route instead of replaying it from cache.
@@ -94,6 +115,6 @@ export function buildAgentResumeStartupPlan(args: {
     launchConfig,
     ...(args.agent === 'codex' ? { startupCommandDelivery: 'shell-ready' as const } : {}),
     ...(Object.keys(applied).length > 0 ? { sessionOptions: { ...applied } } : {}),
-    ...(args.agentEnv ? { env: { ...args.agentEnv } } : {})
+    ...(agentEnv ? { env: { ...agentEnv } } : {})
   }
 }

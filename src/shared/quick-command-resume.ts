@@ -1,6 +1,10 @@
-import { flattenTerminalQuickCommand, terminalQuickCommandMatchesRepo } from './terminal-quick-commands'
+import {
+  flattenTerminalQuickCommand,
+  terminalQuickCommandMatchesRepo
+} from './terminal-quick-commands'
 import type { TerminalQuickCommand } from './terminal-quick-command-types'
 import { tokenizeStartupCommand, type AgentStartupShell } from './tui-agent-startup-shell'
+import type { SleepingAgentLaunchConfig } from './agent-session-resume'
 
 /**
  * Why this file exists: a terminal-command Quick Command can launch an agent
@@ -36,7 +40,7 @@ export function isPersistableQuickCommandRef(value: unknown): value is string {
   return true
 }
 
-const RESUME_SELECTOR_RE = /^(--resume|--continue|-r|-c)(=.*)?$/
+const WRAPPER_RESUME_SELECTOR_RE = /^(--resume|--continue)(=.*)?$/
 
 function splitCommandTokens(command: string): string[] {
   const tokens: string[] = []
@@ -149,8 +153,7 @@ export function isAgentLikeQuickCommandText(command: string): boolean {
   if (tokens.length === 0) {
     return false
   }
-  const firstBasename =
-    stripTokenQuotes(tokens[0]).split(/[\\/]/).pop()?.toLowerCase() ?? ''
+  const firstBasename = stripTokenQuotes(tokens[0]).split(/[\\/]/).pop()?.toLowerCase() ?? ''
   if (!firstBasename) {
     return false
   }
@@ -159,7 +162,23 @@ export function isAgentLikeQuickCommandText(command: string): boolean {
       return true
     }
   }
-  return tokens.some((token) => RESUME_SELECTOR_RE.test(stripTokenQuotes(token)))
+  // Why long forms only: short `-r`/`-c` are everyday flags (`grep -r`,
+  // `cp -r`, `git -c`) and would stamp plain shell commands as agents.
+  return tokens.some((token) => WRAPPER_RESUME_SELECTOR_RE.test(stripTokenQuotes(token)))
+}
+
+/**
+ * Why: the launch-time stamp carries only the Quick Command ref, with empty
+ * placeholder args/env. A config that recorded a stock agentCommand holds
+ * real launch inputs; a stamp-only one must not suppress the user's defaults
+ * when the wrapper cannot be used.
+ */
+export function isQuickCommandStampOnlyLaunchConfig(
+  config: SleepingAgentLaunchConfig | undefined
+): boolean {
+  return Boolean(
+    config && !config.agentCommand?.trim() && (config.quickCommandId || config.quickCommandLabel)
+  )
 }
 
 export function resolveQuickCommandResumeText(
@@ -185,10 +204,7 @@ export function resolveQuickCommandResumeText(
   // Why uniqueness on the label path: a label-only ref must never pick one of
   // several same-label commands (possibly scoped to another repo) at random —
   // ambiguity resolves to the stock fallback, not a guess.
-  const byLabel =
-    !byId && label
-      ? inScope.filter((command) => command.label === label)
-      : []
+  const byLabel = !byId && label ? inScope.filter((command) => command.label === label) : []
   const match = byId ?? (byLabel.length === 1 ? byLabel[0] : undefined)
   if (!match || match.action === 'agent-prompt') {
     return null
@@ -218,7 +234,10 @@ const STALE_RESUME_SELECTOR_RE = /^(--resume|--continue|-r|-c)(=.*)?$/
  * PowerShell's leading `&` call operator is the one known-safe divergence,
  * mirroring the claude resume guard (agent-resume-launch-command.ts).
  */
-export function isWrapperTextSafeToAppendResume(command: string, shell: AgentStartupShell): boolean {
+export function isWrapperTextSafeToAppendResume(
+  command: string,
+  shell: AgentStartupShell
+): boolean {
   const tokenized = tokenizeStartupCommand(command, shell)
   if (!tokenized.ok) {
     return false

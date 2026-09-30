@@ -1,6 +1,7 @@
 import { useAppStore } from '@/store'
 import {
   isPersistableQuickCommandRef,
+  isQuickCommandStampOnlyLaunchConfig,
   resolveQuickCommandResumeText
 } from '../../../../../shared/quick-command-resume'
 import { getRepoIdFromWorktreeId } from '../../../../../shared/worktree/id'
@@ -96,8 +97,7 @@ export function bindBuildColdRestoreAgentResumeStartup(session: ConnectPanePtySe
       quickCommandLabel: launchConfig?.quickCommandLabel ?? sleepingRecord?.quickCommandLabel
     }
     const restampedQuickCommandId =
-      quickCommandRef.quickCommandId &&
-      isPersistableQuickCommandRef(quickCommandRef.quickCommandId)
+      quickCommandRef.quickCommandId && isPersistableQuickCommandRef(quickCommandRef.quickCommandId)
         ? quickCommandRef.quickCommandId.trim()
         : undefined
     const restampedQuickCommandLabel =
@@ -125,6 +125,18 @@ export function bindBuildColdRestoreAgentResumeStartup(session: ConnectPanePtySe
         launchConfig !== undefined
           ? launchConfig.agentEnv
           : resolveTuiAgentLaunchEnv(agent, state.settings?.agentDefaultEnv),
+      ...(isQuickCommandStampOnlyLaunchConfig(launchConfig)
+        ? {
+            quickCommandFallbackAgentArgs: resolveTuiAgentLaunchArgs(
+              agent,
+              state.settings?.agentDefaultArgs
+            ),
+            quickCommandFallbackAgentEnv: resolveTuiAgentLaunchEnv(
+              agent,
+              state.settings?.agentDefaultEnv
+            )
+          }
+        : {}),
       ...(launchConfig?.agentCommand ? { agentCommand: launchConfig.agentCommand } : {}),
       ...(launchConfig?.ompResumeFilePath
         ? { ompResumeFilePath: launchConfig.ompResumeFilePath }

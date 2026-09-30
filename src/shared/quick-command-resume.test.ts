@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   isAgentLikeQuickCommandText,
   isPersistableQuickCommandRef,
+  isQuickCommandStampOnlyLaunchConfig,
   isWrapperTextSafeToAppendResume,
   resolveQuickCommandResumeText,
   stripStaleResumeSelectors
@@ -89,12 +90,12 @@ describe('resolveQuickCommandResumeText', () => {
   })
 
   it('scopes label resolution to the requesting repo', () => {
-    expect(
-      resolveQuickCommandResumeText(COMMANDS, { quickCommandLabel: 'scoped' }, 'repo-a')
-    ).toBe('ccr muse --resume')
-    expect(
-      resolveQuickCommandResumeText(COMMANDS, { quickCommandLabel: 'scoped' }, 'repo-b')
-    ).toBe('ccr other --resume')
+    expect(resolveQuickCommandResumeText(COMMANDS, { quickCommandLabel: 'scoped' }, 'repo-a')).toBe(
+      'ccr muse --resume'
+    )
+    expect(resolveQuickCommandResumeText(COMMANDS, { quickCommandLabel: 'scoped' }, 'repo-b')).toBe(
+      'ccr other --resume'
+    )
     // Why: without a repo scope, two same-label commands are ambiguous.
     expect(resolveQuickCommandResumeText(COMMANDS, { quickCommandLabel: 'scoped' })).toBeNull()
   })
@@ -200,6 +201,33 @@ describe('isAgentLikeQuickCommandText', () => {
     expect(isAgentLikeQuickCommandText('pnpm dev')).toBe(false)
     expect(isAgentLikeQuickCommandText('ccr muse')).toBe(false)
     expect(isAgentLikeQuickCommandText('')).toBe(false)
+  })
+
+  it('rejects everyday short -r/-c flags on non-agent commands', () => {
+    expect(isAgentLikeQuickCommandText('grep -r TODO .')).toBe(false)
+    expect(isAgentLikeQuickCommandText('cp -r a b')).toBe(false)
+    expect(isAgentLikeQuickCommandText('git -c color.ui=always log')).toBe(false)
+  })
+})
+
+describe('isQuickCommandStampOnlyLaunchConfig', () => {
+  it('detects a ref-only stamp', () => {
+    expect(
+      isQuickCommandStampOnlyLaunchConfig({ agentArgs: '', agentEnv: {}, quickCommandId: 'q' })
+    ).toBe(true)
+  })
+
+  it('treats configs with a recorded agentCommand or no ref as real launch inputs', () => {
+    expect(
+      isQuickCommandStampOnlyLaunchConfig({
+        agentCommand: 'claude --x',
+        agentArgs: '--x',
+        agentEnv: {},
+        quickCommandId: 'q'
+      })
+    ).toBe(false)
+    expect(isQuickCommandStampOnlyLaunchConfig({ agentArgs: '', agentEnv: {} })).toBe(false)
+    expect(isQuickCommandStampOnlyLaunchConfig(undefined)).toBe(false)
   })
 })
 

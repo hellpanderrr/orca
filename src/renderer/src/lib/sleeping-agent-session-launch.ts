@@ -2,6 +2,7 @@ import { toast } from 'sonner'
 import { useAppStore } from '@/store'
 import {
   isPersistableQuickCommandRef,
+  isQuickCommandStampOnlyLaunchConfig,
   resolveQuickCommandResumeText
 } from '../../../shared/quick-command-resume'
 import { getRepoIdFromWorktreeId } from '../../../shared/worktree/id'
@@ -89,8 +90,7 @@ export function launchSleepingAgentSession(
     getRepoIdFromWorktreeId(record.worktreeId)
   )
   const restampedQuickCommandId =
-    quickCommandRef.quickCommandId &&
-    isPersistableQuickCommandRef(quickCommandRef.quickCommandId)
+    quickCommandRef.quickCommandId && isPersistableQuickCommandRef(quickCommandRef.quickCommandId)
       ? quickCommandRef.quickCommandId.trim()
       : undefined
   const restampedQuickCommandLabel =
@@ -110,6 +110,18 @@ export function launchSleepingAgentSession(
       launchConfig !== undefined
         ? launchConfig.agentEnv
         : resolveTuiAgentLaunchEnv(record.agent, state.settings?.agentDefaultEnv),
+    ...(isQuickCommandStampOnlyLaunchConfig(launchConfig)
+      ? {
+          quickCommandFallbackAgentArgs: resolveTuiAgentLaunchArgs(
+            record.agent,
+            state.settings?.agentDefaultArgs
+          ),
+          quickCommandFallbackAgentEnv: resolveTuiAgentLaunchEnv(
+            record.agent,
+            state.settings?.agentDefaultEnv
+          )
+        }
+      : {}),
     ...(launchConfig?.agentCommand ? { agentCommand: launchConfig.agentCommand } : {}),
     ...(launchConfig?.ompResumeFilePath
       ? { ompResumeFilePath: launchConfig.ompResumeFilePath }
@@ -141,7 +153,7 @@ export function launchSleepingAgentSession(
       launchConfig: startupPlan.launchConfig,
       resumeProviderSession: record.providerSession,
       launchAgent: record.agent,
-      ...(launchConfig ? { agentArgsOverride: launchConfig.agentArgs } : {}),
+      ...(launchConfig ? { agentArgsOverride: startupPlan.launchConfig.agentArgs } : {}),
       ...(startupPlan.startupCommandDelivery
         ? { startupCommandDelivery: startupPlan.startupCommandDelivery }
         : {}),
