@@ -9,8 +9,14 @@ not pushed. 146 tests pass across the 3 PR suites, typecheck exits 0, quality ga
 
 ## Local work (this session, outside the repo)
 - `~/bin/orca-claude-dispatch.js` rewritten (v2): SQLite profile-state.db source, transcript
-  served-model source, tiered matcher, `--backfill|--rebuild [--write]|--explain <sid>`.
+  served-model source, tiered matcher, `--plain <sid>` durable pin,
+  `--backfill|--rebuild [--write]|--explain <sid>|--map|--forget`.
   Map seeded: 8 sessions resolve (was 3).
+- `~/bin/orca-claude-shim-install.js` — idempotent shim (re)installer, `--check` exits 1 on
+  a clobbered shim, `--uninstall` restores originals. Run after ANY claude update: `npm i -g`
+  rewrites exactly the three launcher files, silently unwrapping the interception.
+  Verified: simulate-clobber -> --check catches it -> repair restores, backup guard intact
+  (a shim is never archived over the real launcher).
 - Shims installed over the real launchers in `AppData\Local\nvm\v23.11.1\`: `claude`,
   `claude.cmd`, `claude.ps1`. Originals backed up in `~/bin/orca-claude-shims-backup/*.orig`.
   Verified through bash/cmd/powershell + full chain incl. Cyrillic preset name.
@@ -20,6 +26,10 @@ not pushed. 146 tests pass across the 3 PR suites, typecheck exits 0, quality ga
 - New panes pick the shims up immediately (same directory, already on PATH); the running
   daemon (started 09-29 10:32) needs no restart for that. A daemon restart is only needed
   if it caches absolute resolution — not observed.
+- `/adv` (DS) review of this work flagged: shim clobber on claude update (fixed via installer),
+  missing plain-pin (fixed via `--plain`), and that the PATH-shim blast radius is
+  machine-wide (any `claude` invocation, not just Orca) — accepted: originals backed up,
+  installer reversible, and the settings route was proven non-functional.
 
 ## Open threads
 - Restart Orca, confirm a preset tab restores on the right route (`/status` under a preset
