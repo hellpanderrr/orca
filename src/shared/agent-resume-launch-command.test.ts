@@ -619,6 +619,18 @@ describe('buildAgentResumeStartupPlan claude selector guard', () => {
     expect(restored?.launchConfig.agentCommand).toBeUndefined()
   })
 
+  it('strips a stale codex resume subcommand from its wrapper', () => {
+    const restored = buildAgentResumeStartupPlan({
+      agent: 'codex',
+      providerSession,
+      cmdOverrides: {},
+      quickCommandText: 'wrap -c k=v resume stale',
+      platform: 'linux'
+    })
+    expect(restored?.launchCommand).not.toContain('stale')
+    expect(restored?.launchCommand).toContain('wrap -c k=v')
+  })
+
   it('keeps -c/-r in non-claude wrapper text (codex -c is a config override)', () => {
     const restored = buildAgentResumeStartupPlan({
       agent: 'codex',

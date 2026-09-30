@@ -13,12 +13,11 @@ import type { TuiAgent } from './tui-agent'
 import { buildAgentResumeLaunchCommand } from './agent-resume-launch-command'
 import { isWrapperTextSafeToAppendResume, stripStaleResumeSelectors } from './quick-command-resume'
 
-// `[bin, '--resume', id]` → `--resume`; `[bin, '--resume=id']` (copilot) →
-// `--resume`; subcommand resumes (`codex resume <id>`) have no flag.
+// `[bin, '--resume', id]` → `--resume`; `[bin, 'resume', id]` (codex, muse)
+// → the `resume` subcommand; `[bin, '--resume=id']` (copilot) → `--resume`.
 function resolveAgentResumeFlag(argv: readonly string[]): string | undefined {
-  const flag = argv.at(-2)
-  if (flag?.startsWith('-')) {
-    return flag
+  if (argv.length >= 3) {
+    return argv.at(-2)
   }
   const joined = argv.at(-1)
   return joined?.startsWith('-') && joined.includes('=')
@@ -64,8 +63,8 @@ export function buildAgentResumeStartupPlan(args: {
   // from receiving the appended session id as its LAST command's argument.
   const trimmedQuickCommandText = args.quickCommandText?.trim() ?? ''
   // Why: claude strips every selector shape its guard knows; other agents
-  // strip only their own resume flag (`--resume`, `--session`, …), and
-  // subcommand-style resumes (codex `resume <id>`) strip nothing.
+  // strip only their own resume selector (`--resume`, `--session`, or the
+  // codex/muse `resume` subcommand) so e.g. codex `-c key=value` survives.
   const agentResumeFlag = resolveAgentResumeFlag(argv)
   const resolvedQuickCommandText =
     trimmedQuickCommandText && isWrapperTextSafeToAppendResume(trimmedQuickCommandText, shell)
