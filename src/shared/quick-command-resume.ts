@@ -151,6 +151,17 @@ const KNOWN_AGENT_BINARIES: ReadonlySet<string> = new Set([
   'devin'
 ])
 
+/**
+ * Why: `NAME=value` assignments before the command (`CLAUDE_CONFIG_DIR=~/.cw
+ * claude`) are environment, not the program; callers that identify the
+ * program must look past them.
+ */
+export function stripLeadingEnvAssignments(command: string): string {
+  const tokens = splitCommandTokens(command)
+  const commandIndex = tokens.findIndex((token) => !ENV_ASSIGNMENT_RE.test(token))
+  return commandIndex <= 0 ? command : tokens.slice(commandIndex).join(' ')
+}
+
 export function isAgentLikeQuickCommandText(
   command: string,
   // Why: shells without OSC 133 (cmd.exe) never report the command finishing,

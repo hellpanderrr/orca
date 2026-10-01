@@ -11,7 +11,11 @@ import { resolveStartupShell, type AgentStartupShell } from './tui-agent-startup
 import { TUI_AGENT_CONFIG } from './tui-agent-config'
 import type { TuiAgent } from './tui-agent'
 import { buildAgentResumeLaunchCommand } from './agent-resume-launch-command'
-import { isWrapperTextSafeToAppendResume, stripStaleResumeSelectors } from './quick-command-resume'
+import {
+  isWrapperTextSafeToAppendResume,
+  stripLeadingEnvAssignments,
+  stripStaleResumeSelectors
+} from './quick-command-resume'
 import { recognizeAgentProcessFromCommandLine } from './agent-process-recognition'
 
 // `[bin, '--resume', id]` → `--resume`; `[bin, 'resume', id]` (codex, muse)
@@ -73,7 +77,7 @@ export function buildAgentResumeStartupPlan(args: {
   // Why: text that launches a different agent directly (`claude ...` for a
   // codex session) would resume the wrong binary; fall back to stock.
   const quickCommandAgent = trimmedQuickCommandText
-    ? recognizeAgentProcessFromCommandLine(trimmedQuickCommandText, {
+    ? recognizeAgentProcessFromCommandLine(stripLeadingEnvAssignments(trimmedQuickCommandText), {
         includeHeadlessOneShot: true
       })?.agent
     : undefined
