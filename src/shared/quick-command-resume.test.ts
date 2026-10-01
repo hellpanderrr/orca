@@ -208,6 +208,25 @@ describe('stripStaleResumeSelectors', () => {
     ).toBe('codex -c k=v')
   })
 
+  it('leaves `resume` alone when it is an option value of a wrapper', () => {
+    expect(
+      stripStaleResumeSelectors('wrap --profile resume -x', 'posix', {
+        agentBinary: 'codex',
+        resumeFlag: 'resume'
+      })
+    ).toBe('wrap --profile resume -x')
+  })
+
+  it('does not swallow an operand after a joined-only resume flag', () => {
+    expect(
+      stripStaleResumeSelectors('copilot --resume "do thing"', 'posix', {
+        agentBinary: 'copilot',
+        resumeFlag: '--resume',
+        resumeFlagJoined: true
+      })
+    ).toBe('copilot "do thing"')
+  })
+
   it('also cuts --continue for agents that resume by flag', () => {
     expect(
       stripStaleResumeSelectors('dsh-tui --continue web', 'posix', {

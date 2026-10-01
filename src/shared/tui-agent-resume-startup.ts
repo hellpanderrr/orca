@@ -76,7 +76,8 @@ export function buildAgentResumeStartupPlan(args: {
         : agentResumeFlag
           ? stripStaleResumeSelectors(trimmedQuickCommandText, shell, {
               agentBinary,
-              resumeFlag: agentResumeFlag
+              resumeFlag: agentResumeFlag,
+              resumeFlagJoined: argv.length < 3
             })
           : trimmedQuickCommandText
       : ''

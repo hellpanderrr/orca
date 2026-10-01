@@ -250,6 +250,9 @@ export type StaleResumeSelectorTarget = {
   /** The agent's own resume selector for non-claude agents: a flag
    *  (`--resume`, `--session`) or a subcommand (`resume`). Absent = claude. */
   resumeFlag?: string
+  /** The agent only accepts the joined `--resume=<id>` form (copilot), so a
+   *  bare flag is not followed by a session-id operand. */
+  resumeFlagJoined?: boolean
 }
 
 function tokenNamesBinary(token: string, binary: string): boolean {
@@ -261,18 +264,24 @@ type SelectorMatch = { takesOperand: boolean; consumesRest: boolean } | null
 
 function matchStaleSelector(
   token: string,
+  previousToken: string | undefined,
   target: StaleResumeSelectorTarget,
   afterAgentBinary: boolean
 ): SelectorMatch {
   const flag = target.resumeFlag
   if (flag && !flag.startsWith('-')) {
+    // Why: without the binary in the text, `resume` right after an option is
+    // that option's value (`wrap --profile resume`), not the subcommand.
+    if (token !== flag || (!afterAgentBinary && previousToken?.startsWith('-'))) {
+      return null
+    }
     // Why: a subcommand resume (`codex resume --last`) owns every following
     // token; leaving them would hoist subcommand options to the top level.
-    return token === flag ? { takesOperand: false, consumesRest: true } : null
+    return { takesOperand: false, consumesRest: true }
   }
   if (flag) {
     if (token === flag) {
-      return { takesOperand: true, consumesRest: false }
+      return { takesOperand: target.resumeFlagJoined !== true, consumesRest: false }
     }
     // Why: agents that resume by flag also honor a bare `--continue` (dsh,
     // codebuddy, omp); leaving it would compete with the appended selector.
@@ -374,7 +383,7 @@ export function stripStaleResumeSelectors(
   }
   const cuts: { start: number; end: number }[] = []
   for (let i = agentIndex + 1; i < tokens.length; i += 1) {
-    const match = matchStaleSelector(tokens[i], target, agentIndex !== -1)
+    const match = matchStaleSelector(tokens[i], tokens[i - 1], target, agentIndex !== -1)
     if (!match) {
       continue
     }
