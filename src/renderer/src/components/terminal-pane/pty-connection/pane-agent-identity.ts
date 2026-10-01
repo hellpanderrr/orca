@@ -18,7 +18,6 @@ import type { TuiAgent } from '../../../../../shared/tui-agent'
 import { isTuiAgent, TUI_AGENT_CONFIG } from '../../../../../shared/tui-agent-config'
 
 import type { ConnectPanePtySession } from './connect-pane-pty-session'
-import { retireUnusedQuickCommandStamp } from '@/lib/quick-command-stamp-retirement'
 
 /** Pane agent identity, foreground-agent sampling, and command lifecycle handling. */
 export function installPaneAgentIdentity(session: ConnectPanePtySession): void {
@@ -187,7 +186,6 @@ export function installPaneAgentIdentity(session: ConnectPanePtySession): void {
         return
       }
       session.settleDeferredCommandFinishedStatusDrop({ confirmedShell: true })
-      retireUnusedQuickCommandStamp(session.cacheKey)
     },
     // Why wrapped: passed bare, a caller-supplied argument would be read as `options` and could
     // reconcile on the unavailable path, which has no proof the agent exited.
@@ -237,11 +235,6 @@ export function installPaneAgentIdentity(session: ConnectPanePtySession): void {
         return
       }
       session.dropCommandFinishedStatusIfSameTurn(entry)
-    }
-    if (!shouldDeferStatusDrop) {
-      // Why: only on prompt proof — the fast path here, or the confirmed-shell
-      // settle in onConfirmedShellForeground; an unverifiable read is no proof.
-      retireUnusedQuickCommandStamp(session.cacheKey)
     }
     if (shouldDeferStatusDrop) {
       // Why: keep the concrete pane identity routable while the local process
