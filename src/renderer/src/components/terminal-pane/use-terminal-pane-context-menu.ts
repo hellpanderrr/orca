@@ -25,7 +25,6 @@ import { useTerminalPaneSplitActions } from './use-terminal-pane-split-actions'
 import { useTerminalContextMenuTrigger } from './use-terminal-context-menu-trigger'
 import { useAppStore } from '@/store'
 import { makePaneKey } from '../../../../shared/stable-pane-id'
-import { retireUnusedQuickCommandStamp } from '@/lib/quick-command-stamp-retirement'
 import { resolvePaneAgentSessionId } from './pane-agent-session-id'
 import { resetTerminalInputModes } from './terminal-input-mode-reset'
 
@@ -238,16 +237,12 @@ export function useTerminalPaneContextMenu({
     if (!pane) {
       return
     }
-    const sent = sendTerminalQuickCommandToPane({
+    sendTerminalQuickCommandToPane({
       command,
       pane,
       tabId,
       transport: paneTransportsRef.current.get(pane.id)
     })
-    if (sent) {
-      // Why: this command bypasses keystroke shadowing, so retire here too.
-      retireUnusedQuickCommandStamp(makePaneKey(tabId, pane.leafId))
-    }
   }
 
   const onToggleExpand = (): void => {

@@ -40,13 +40,146 @@ export function isPersistableQuickCommandRef(value: unknown): value is string {
   return true
 }
 
+// Why `--resume` only: `--continue` is an everyday flag in saved commands
+// (`git rebase --continue`, `git merge --continue`) and would stamp them.
+const WRAPPER_RESUME_SELECTOR_RE = /^--resume(=.*)?$/
+const ENV_ASSIGNMENT_RE = /^[A-Za-z_][A-Za-z0-9_]*=/
+
+function splitCommandTokens(command: string): string[] {
+  const tokens: string[] = []
+  let token = ''
+  let quote: string | null = null
+  for (let i = 0; i < command.length; i += 1) {
+    const char = command[i]
+    if (quote) {
+      token += char
+      if (char === quote) {
+        quote = null
+      }
+      continue
+    }
+    if (char === '"' || char === "'") {
+      quote = char
+      token += char
+      continue
+    }
+    if (/\s/.test(char)) {
+      if (token) {
+        tokens.push(token)
+        token = ''
+      }
+      continue
+    }
+    token += char
+  }
+  if (token) {
+    tokens.push(token)
+  }
+  return tokens
+}
+
+function stripTokenQuotes(token: string): string {
+  if (token.length >= 2) {
+    const first = token.at(0)
+    const last = token.at(-1)
+    if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
+      return token.slice(1, -1)
+    }
+  }
+  return token
+}
+
+/**
+ * Why: the resume ref must only ever be carried for tabs that actually
+ * launched an agent CLI. A plain `git status` Quick Command tab sets the same
+ * tab label, and if the user later starts an agent by hand in that pane the
+ * stale label would rebuild `git status --resume <sid>`. Gate the stamp at
+ * launch: the command must either name a known agent binary in command
+ * position or already carry a resume selector (only agent commands do).
+ */
+// Why: derived from TUI_AGENT_CONFIG's own detectCmd/aliases (first tokens of
+// launchCmd included, wrapper verbs like `orca claude-teams` excluded — the
+// ref is only for shell-typed wrappers around a real agent binary). `ccr`
+// (claude-code-router) is the motivating wrapper: its first arg is the
+// preset, so bare `ccr` alone must NOT qualify — only with a resume
+// selector, which only agent sessions carry.
+const KNOWN_AGENT_BINARIES: ReadonlySet<string> = new Set([
+  'claude',
+  'codebuddy',
+  'cbc',
+  'openclaude',
+  'codex',
+  'autohand',
+  'ante',
+  'traecli',
+  'opencode',
+  'opencode2',
+  'mimo',
+  'pi',
+  'omp',
+  'prime-agent',
+  'qodercli',
+  'gemini',
+  'agy',
+  'aider',
+  'goose',
+  'amp',
+  'kilo',
+  'kiro-cli',
+  'crush',
+  'auggie',
+  'cline',
+  'freebuff',
+  'codebuff',
+  'command-code',
+  'cursor-agent',
+  'droid',
+  'kimi',
+  'kimi-code',
+  'vibe',
+  'mistral-vibe',
+  'qwen',
+  'rovo',
+  'hermes',
+  'openclaw',
+  'copilot',
+  'grok',
+  'muse',
+  'dsh-tui',
+  'dst',
+  'zcode',
+  'devin'
+])
+
+export function isAgentLikeQuickCommandText(command: string): boolean {
+  const tokens = splitCommandTokens(command)
+  // Why: leading `NAME=value` assignments (`CLAUDE_CONFIG_DIR=~/.cw claude`)
+  // are environment for the command, never the command itself.
+  const commandIndex = tokens.findIndex((token) => !ENV_ASSIGNMENT_RE.test(token))
+  if (commandIndex === -1) {
+    return false
+  }
+  const firstBasename =
+    stripTokenQuotes(tokens[commandIndex]).split(/[\\/]/).pop()?.toLowerCase() ?? ''
+  if (!firstBasename) {
+    return false
+  }
+  for (const name of KNOWN_AGENT_BINARIES) {
+    if (firstBasename === name || firstBasename === `${name}.exe`) {
+      return true
+    }
+  }
+  // Why the long form only: short `-r` is an everyday flag (`grep -r`,
+  // `cp -r`) and would stamp plain shell commands as agents. An explicit
+  // `--resume` is how any wrapper or script opts in.
+  return tokens.some((token) => WRAPPER_RESUME_SELECTOR_RE.test(stripTokenQuotes(token)))
+}
+
 /**
  * Why: the launch-time stamp carries only the Quick Command ref, with empty
  * placeholder args/env. A config that recorded a stock agentCommand holds
  * real launch inputs; a stamp-only one must not suppress the user's defaults
- * when the wrapper cannot be used. Every terminal-command Quick Command opened
- * in a new tab is stamped (wrappers can't be told apart from plain commands);
- * an unused stamp is retired when the user runs something else in the pane.
+ * when the wrapper cannot be used.
  */
 export function isQuickCommandStampOnlyLaunchConfig(
   config: SleepingAgentLaunchConfig | undefined

@@ -12,7 +12,6 @@ import { resolveCommittedTitleAgentType } from '@/lib/pane-agent-evidence'
 import { recognizeAgentProcessFromCommandLine } from '../../../../../shared/agent-process-recognition'
 import type { TuiAgent } from '../../../../../shared/tui-agent'
 import { isTuiAgent } from '../../../../../shared/tui-agent-config'
-import { retireUnusedQuickCommandStamp } from '@/lib/quick-command-stamp-retirement'
 
 import { MANUAL_AGENT_COMMAND_MAX_CHARS } from './pty-connect-limits'
 
@@ -36,7 +35,6 @@ export function installCommandInferredPaneAgent(session: ConnectPanePtySession):
   session.rememberCommandInferredPaneAgent = (): void => {
     const commandLine = session.pendingShellCommandLine.trim()
     session.resetPendingShellCommandLine()
-    retireUnusedQuickCommandStamp(session.cacheKey)
     const candidateAgent = commandLine
       ? (recognizeAgentProcessFromCommandLine(commandLine)?.agent ?? null)
       : null
