@@ -66,13 +66,17 @@ export function bindBuildColdRestoreAgentResumeStartup(session: ConnectPanePtySe
     ) {
       return null
     }
-    const matchingSleepingLaunchConfig =
-      sleepingRecord?.launchConfig &&
+    const sleepingRecordMatchesSession =
+      sleepingRecord !== undefined &&
       (!useLiveEntry ||
         (sleepingRecord.agent === agent &&
           agentProviderSessionsEqual(agent, sleepingRecord.providerSession, providerSession)))
-        ? sleepingRecord.launchConfig
-        : undefined
+    const matchingSleepingLaunchConfig = sleepingRecordMatchesSession
+      ? sleepingRecord?.launchConfig
+      : undefined
+    // Why: the record-level Quick Command ref obeys the same session match as
+    // its launch config — an older session's wrapper must not route this one.
+    const matchingSleepingRecord = sleepingRecordMatchesSession ? sleepingRecord : undefined
     const launchConfig =
       (useLiveEntry && entry ? state.getAgentLaunchConfigForStatusEntry(entry) : undefined) ??
       matchingSleepingLaunchConfig
@@ -93,8 +97,9 @@ export function bindBuildColdRestoreAgentResumeStartup(session: ConnectPanePtySe
     // present, otherwise the record-level ref (older tabs whose config
     // predates the stamp, or configs without one).
     const quickCommandRef = {
-      quickCommandId: launchConfig?.quickCommandId ?? sleepingRecord?.quickCommandId,
-      quickCommandLabel: launchConfig?.quickCommandLabel ?? sleepingRecord?.quickCommandLabel
+      quickCommandId: launchConfig?.quickCommandId ?? matchingSleepingRecord?.quickCommandId,
+      quickCommandLabel:
+        launchConfig?.quickCommandLabel ?? matchingSleepingRecord?.quickCommandLabel
     }
     const restampedQuickCommandId =
       quickCommandRef.quickCommandId && isPersistableQuickCommandRef(quickCommandRef.quickCommandId)

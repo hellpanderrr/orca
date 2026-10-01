@@ -230,7 +230,9 @@ export function resolveQuickCommandResumeText(
     return null
   }
   const text = flattenTerminalQuickCommand(match).command.trim()
-  return text ? text : null
+  // Why: the text is resolved live, so a linked command later edited into a
+  // non-agent one (`./deploy.sh`) must not be re-run on restore.
+  return text && isAgentLikeQuickCommandText(text) ? text : null
 }
 
 // Same selector shapes the claude resume guard strips
@@ -238,6 +240,54 @@ export function resolveQuickCommandResumeText(
 // and their `=` forms. The ambiguous joined `-r<id>` form is deliberately
 // NOT matched — see the guard for why no arity table can cover it.
 const STALE_RESUME_SELECTOR_RE = /^(--resume|--continue|-r|-c)(=.*)?$/
+const LONG_STALE_RESUME_SELECTOR_RE = /^(--resume|--continue)(=.*)?$/
+
+export type StaleResumeSelectorTarget = {
+  /** Executable name of the agent (`claude`, `codex`, `dsh-tui`). Selectors
+   *  are only cut after it, so a preceding wrapper's own `-c`/`-r`
+   *  (`nix develop -c claude`) survive. */
+  agentBinary?: string
+  /** The agent's own resume selector for non-claude agents: a flag
+   *  (`--resume`, `--session`) or a subcommand (`resume`). Absent = claude. */
+  resumeFlag?: string
+}
+
+function tokenNamesBinary(token: string, binary: string): boolean {
+  const basename = token.split(/[\\/]/).pop()?.toLowerCase() ?? ''
+  return basename === binary || basename === `${binary}.exe`
+}
+
+type SelectorMatch = { takesOperand: boolean; consumesRest: boolean } | null
+
+function matchStaleSelector(
+  token: string,
+  target: StaleResumeSelectorTarget,
+  afterAgentBinary: boolean
+): SelectorMatch {
+  const flag = target.resumeFlag
+  if (flag && !flag.startsWith('-')) {
+    // Why: a subcommand resume (`codex resume --last`) owns every following
+    // token; leaving them would hoist subcommand options to the top level.
+    return token === flag ? { takesOperand: false, consumesRest: true } : null
+  }
+  if (flag) {
+    if (token === flag) {
+      return { takesOperand: true, consumesRest: false }
+    }
+    // Why: agents that resume by flag also honor a bare `--continue` (dsh,
+    // codebuddy, omp); leaving it would compete with the appended selector.
+    return token.startsWith(`${flag}=`) || token === '--continue'
+      ? { takesOperand: false, consumesRest: false }
+      : null
+  }
+  // Why: without the agent binary in the text (`ccr muse --resume`), short
+  // `-c`/`-r` may belong to the wrapper, so only long forms are selectors.
+  const selectorRe = afterAgentBinary ? STALE_RESUME_SELECTOR_RE : LONG_STALE_RESUME_SELECTOR_RE
+  if (!selectorRe.test(token)) {
+    return null
+  }
+  return { takesOperand: token === '--resume' || token === '-r', consumesRest: false }
+}
 
 /**
  * Why: `buildAgentResumeStartupPlan` appends the resume selector at the END of
@@ -285,9 +335,7 @@ export function isWrapperTextSafeToAppendResume(
 export function stripStaleResumeSelectors(
   command: string,
   shell: AgentStartupShell,
-  // Why: for non-claude agents only their own resume flag is a selector —
-  // their `-c`/`-r` mean something else (codex `-c key=value`).
-  resumeFlag?: string
+  target: StaleResumeSelectorTarget = {}
 ): string {
   const tokenized = tokenizeStartupCommand(command, shell)
   if (!tokenized.ok) {
@@ -317,21 +365,26 @@ export function stripStaleResumeSelectors(
       }
     }
   }
+  let agentIndex = -1
+  for (let i = tokens.length - 1; i >= 0 && target.agentBinary; i -= 1) {
+    if (tokenNamesBinary(tokens[i], target.agentBinary)) {
+      agentIndex = i
+      break
+    }
+  }
   const cuts: { start: number; end: number }[] = []
-  for (let i = 0; i < tokens.length; i += 1) {
-    const token = tokens[i]
-    const isSelector = resumeFlag
-      ? token === resumeFlag || token.startsWith(`${resumeFlag}=`)
-      : STALE_RESUME_SELECTOR_RE.test(token)
-    if (!isSelector) {
+  for (let i = agentIndex + 1; i < tokens.length; i += 1) {
+    const match = matchStaleSelector(tokens[i], target, agentIndex !== -1)
+    if (!match) {
       continue
     }
     let endIndex = i
-    // Why: only `--resume`/`-r` (or the agent's own flag) take a separate
-    // session-id operand; `--continue`/`-c` are bare flags. Mirrors the claude guard.
     const next = tokens[i + 1]
-    const takesOperand = resumeFlag ? token === resumeFlag : token === '--resume' || token === '-r'
-    if (takesOperand && next !== undefined && !next.startsWith('-')) {
+    if (match.consumesRest) {
+      endIndex = tokens.length - 1
+    } else if (match.takesOperand && next !== undefined && !next.startsWith('-')) {
+      // Why: only `--resume`/`-r` (or the agent's own flag) take a separate
+      // session-id operand; `--continue`/`-c` are bare flags. Mirrors the claude guard.
       endIndex = i + 1
     }
     let start = spans[i].start

@@ -631,6 +631,29 @@ describe('buildAgentResumeStartupPlan claude selector guard', () => {
     expect(restored?.launchCommand).toContain('wrap -c k=v')
   })
 
+  it('drops codex resume subcommand options instead of hoisting them', () => {
+    const restored = buildAgentResumeStartupPlan({
+      agent: 'codex',
+      providerSession,
+      cmdOverrides: {},
+      quickCommandText: 'codex resume --last',
+      platform: 'linux'
+    })
+    expect(restored?.launchCommand).not.toContain('--last')
+    expect(restored?.launchCommand).toContain(SESSION_ID)
+  })
+
+  it("keeps a wrapper's own -c ahead of claude", () => {
+    const restored = buildAgentResumeStartupPlan({
+      agent: 'claude',
+      providerSession,
+      cmdOverrides: {},
+      quickCommandText: 'nix develop -c claude --resume stale',
+      platform: 'linux'
+    })
+    expect(restored?.launchCommand).toBe(`nix develop -c claude '--resume' '${SESSION_ID}'`)
+  })
+
   it('keeps -c/-r in non-claude wrapper text (codex -c is a config override)', () => {
     const restored = buildAgentResumeStartupPlan({
       agent: 'codex',

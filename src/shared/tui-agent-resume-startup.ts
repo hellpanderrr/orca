@@ -65,13 +65,19 @@ export function buildAgentResumeStartupPlan(args: {
   // Why: claude strips every selector shape its guard knows; other agents
   // strip only their own resume selector (`--resume`, `--session`, or the
   // codex/muse `resume` subcommand) so e.g. codex `-c key=value` survives.
+  // Selectors are cut only after the agent binary when the text names it, so
+  // a preceding wrapper's own flags (`nix develop -c claude`) are kept.
   const agentResumeFlag = resolveAgentResumeFlag(argv)
+  const agentBinary = argv[0]
   const resolvedQuickCommandText =
     trimmedQuickCommandText && isWrapperTextSafeToAppendResume(trimmedQuickCommandText, shell)
       ? args.agent === 'claude'
-        ? stripStaleResumeSelectors(trimmedQuickCommandText, shell)
+        ? stripStaleResumeSelectors(trimmedQuickCommandText, shell, { agentBinary })
         : agentResumeFlag
-          ? stripStaleResumeSelectors(trimmedQuickCommandText, shell, agentResumeFlag)
+          ? stripStaleResumeSelectors(trimmedQuickCommandText, shell, {
+              agentBinary,
+              resumeFlag: agentResumeFlag
+            })
           : trimmedQuickCommandText
       : ''
   const useQuickCommandFallbackDefaults =

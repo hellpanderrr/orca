@@ -121,6 +121,20 @@ describe('resolveQuickCommandResumeText', () => {
     expect(resolveQuickCommandResumeText([], { quickCommandLabel: 'muse' })).toBeNull()
   })
 
+  it('refuses a linked command later edited into a non-agent command', () => {
+    const edited: TerminalQuickCommand[] = [
+      {
+        id: 'deploy',
+        label: 'deploy',
+        action: 'terminal-command',
+        command: './deploy.sh prod',
+        appendEnter: true,
+        scope: { type: 'global' }
+      }
+    ]
+    expect(resolveQuickCommandResumeText(edited, { quickCommandId: 'deploy' })).toBeNull()
+  })
+
   it('rejects multiline compound commands instead of misattaching the selector', () => {
     const multiline: TerminalQuickCommand[] = [
       {
@@ -154,12 +168,53 @@ describe('stripStaleResumeSelectors', () => {
   })
 
   it('strips only the given resume flag for non-claude agents', () => {
-    expect(stripStaleResumeSelectors('wrap -c key=v -r x --resume old', 'posix', '--resume')).toBe(
-      'wrap -c key=v -r x'
-    )
-    expect(stripStaleResumeSelectors('wrap --session=old -c k=v', 'posix', '--session')).toBe(
-      'wrap -c k=v'
-    )
+    expect(
+      stripStaleResumeSelectors('wrap -c key=v -r x --resume old', 'posix', {
+        resumeFlag: '--resume'
+      })
+    ).toBe('wrap -c key=v -r x')
+    expect(
+      stripStaleResumeSelectors('wrap --session=old -c k=v', 'posix', {
+        resumeFlag: '--session'
+      })
+    ).toBe('wrap -c k=v')
+  })
+
+  it("keeps a preceding wrapper's own -c/-r and cuts only after the agent binary", () => {
+    expect(
+      stripStaleResumeSelectors('nix develop -c claude --resume old', 'posix', {
+        agentBinary: 'claude'
+      })
+    ).toBe('nix develop -c claude')
+    expect(
+      stripStaleResumeSelectors('docker run -c 512 img claude -c', 'posix', {
+        agentBinary: 'claude'
+      })
+    ).toBe('docker run -c 512 img claude')
+  })
+
+  it('cuts only long selectors when the text never names the agent', () => {
+    expect(
+      stripStaleResumeSelectors('ccr muse -c cfg --resume old', 'posix', { agentBinary: 'claude' })
+    ).toBe('ccr muse -c cfg')
+  })
+
+  it('drops a subcommand resume together with its own options', () => {
+    expect(
+      stripStaleResumeSelectors('codex -c k=v resume --last', 'posix', {
+        agentBinary: 'codex',
+        resumeFlag: 'resume'
+      })
+    ).toBe('codex -c k=v')
+  })
+
+  it('also cuts --continue for agents that resume by flag', () => {
+    expect(
+      stripStaleResumeSelectors('dsh-tui --continue web', 'posix', {
+        agentBinary: 'dsh-tui',
+        resumeFlag: '--resume'
+      })
+    ).toBe('dsh-tui web')
   })
 
   it('leaves non-selector text untouched', () => {
