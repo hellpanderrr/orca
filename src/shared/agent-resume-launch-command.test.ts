@@ -631,6 +631,17 @@ describe('buildAgentResumeStartupPlan claude selector guard', () => {
     expect(restored?.launchCommand).toContain('wrap -c k=v')
   })
 
+  it('refuses a Quick Command that launches a different agent', () => {
+    const restored = buildAgentResumeStartupPlan({
+      agent: 'codex',
+      providerSession,
+      cmdOverrides: {},
+      quickCommandText: 'claude --model opus',
+      platform: 'linux'
+    })
+    expect(restored?.launchCommand).toBe(`codex 'resume' '${SESSION_ID}'`)
+  })
+
   it('drops codex resume subcommand options instead of hoisting them', () => {
     const restored = buildAgentResumeStartupPlan({
       agent: 'codex',

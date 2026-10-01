@@ -12,6 +12,7 @@ import { TUI_AGENT_CONFIG } from './tui-agent-config'
 import type { TuiAgent } from './tui-agent'
 import { buildAgentResumeLaunchCommand } from './agent-resume-launch-command'
 import { isWrapperTextSafeToAppendResume, stripStaleResumeSelectors } from './quick-command-resume'
+import { recognizeAgentProcessFromCommandLine } from './agent-process-recognition'
 
 // `[bin, '--resume', id]` → `--resume`; `[bin, 'resume', id]` (codex, muse)
 // → the `resume` subcommand; `[bin, '--resume=id']` (copilot) → `--resume`.
@@ -69,8 +70,17 @@ export function buildAgentResumeStartupPlan(args: {
   // a preceding wrapper's own flags (`nix develop -c claude`) are kept.
   const agentResumeFlag = resolveAgentResumeFlag(argv)
   const agentBinary = argv[0]
+  // Why: text that launches a different agent directly (`claude ...` for a
+  // codex session) would resume the wrong binary; fall back to stock.
+  const quickCommandAgent = trimmedQuickCommandText
+    ? recognizeAgentProcessFromCommandLine(trimmedQuickCommandText, {
+        includeHeadlessOneShot: true
+      })?.agent
+    : undefined
   const resolvedQuickCommandText =
-    trimmedQuickCommandText && isWrapperTextSafeToAppendResume(trimmedQuickCommandText, shell)
+    trimmedQuickCommandText &&
+    (quickCommandAgent === undefined || quickCommandAgent === args.agent) &&
+    isWrapperTextSafeToAppendResume(trimmedQuickCommandText, shell)
       ? args.agent === 'claude'
         ? stripStaleResumeSelectors(trimmedQuickCommandText, shell, { agentBinary })
         : agentResumeFlag

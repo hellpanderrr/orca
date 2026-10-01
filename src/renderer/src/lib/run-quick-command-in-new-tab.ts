@@ -1,6 +1,7 @@
 import { useAppStore } from '@/store'
 import { reconcileTabOrder } from '@/components/tab-bar/reconcile-order'
 import { launchAgentInNewTab } from '@/lib/launch-agent-in-new-tab'
+import { getResumeLaunchTarget } from '@/lib/sleeping-agent-session-launch'
 import {
   flattenTerminalQuickCommand,
   isTerminalAgentQuickCommand,
@@ -118,8 +119,10 @@ export function runQuickCommandInNewTab({
   // the stale label would rebuild `git status --resume <sid>`. Persisted
   // refs are also capture-validated so a weird label can never poison
   // sleeping-record hydration (which drops the whole record, not the ref).
+  // The new tab gets the same shell a resume tab would (no per-tab override).
+  const tabShell = getResumeLaunchTarget(worktreeId).shell
   const resumeRefStamp =
-    isAgentLikeQuickCommandText(flattenedCommand) &&
+    isAgentLikeQuickCommandText(flattenedCommand, { requireAgentBinary: tabShell === 'cmd' }) &&
     isPersistableQuickCommandRef(command.id) &&
     isPersistableQuickCommandRef(command.label)
       ? {

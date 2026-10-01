@@ -309,6 +309,13 @@ describe('isAgentLikeQuickCommandText', () => {
     expect(isAgentLikeQuickCommandText('NODE_ENV=production node server.js')).toBe(false)
   })
 
+  it('requires the agent binary when the shell cannot report command exit', () => {
+    expect(isAgentLikeQuickCommandText('ccr muse --resume', { requireAgentBinary: true })).toBe(
+      false
+    )
+    expect(isAgentLikeQuickCommandText('claude --model x', { requireAgentBinary: true })).toBe(true)
+  })
+
   it('treats --resume, not --continue, as the wrapper opt-in', () => {
     expect(isAgentLikeQuickCommandText('aws-vault exec prod -- claude --resume')).toBe(true)
     expect(isAgentLikeQuickCommandText('claude-work --resume')).toBe(true)

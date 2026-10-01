@@ -151,7 +151,12 @@ const KNOWN_AGENT_BINARIES: ReadonlySet<string> = new Set([
   'devin'
 ])
 
-export function isAgentLikeQuickCommandText(command: string): boolean {
+export function isAgentLikeQuickCommandText(
+  command: string,
+  // Why: shells without OSC 133 (cmd.exe) never report the command finishing,
+  // so an unused stamp can't be retired there; require the agent binary.
+  options: { requireAgentBinary?: boolean } = {}
+): boolean {
   const tokens = splitCommandTokens(command)
   // Why: leading `NAME=value` assignments (`CLAUDE_CONFIG_DIR=~/.cw claude`)
   // are environment for the command, never the command itself.
@@ -168,6 +173,9 @@ export function isAgentLikeQuickCommandText(command: string): boolean {
     if (firstBasename === name || firstBasename === `${name}.exe`) {
       return true
     }
+  }
+  if (options.requireAgentBinary) {
+    return false
   }
   // Why the long form only: short `-r` is an everyday flag (`grep -r`,
   // `cp -r`) and would stamp plain shell commands as agents. An explicit

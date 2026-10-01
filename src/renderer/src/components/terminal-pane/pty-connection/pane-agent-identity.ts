@@ -18,6 +18,7 @@ import type { TuiAgent } from '../../../../../shared/tui-agent'
 import { isTuiAgent, TUI_AGENT_CONFIG } from '../../../../../shared/tui-agent-config'
 
 import type { ConnectPanePtySession } from './connect-pane-pty-session'
+import { retireUnusedQuickCommandStamp } from '@/lib/quick-command-stamp-retirement'
 
 /** Pane agent identity, foreground-agent sampling, and command lifecycle handling. */
 export function installPaneAgentIdentity(session: ConnectPanePtySession): void {
@@ -222,6 +223,9 @@ export function installPaneAgentIdentity(session: ConnectPanePtySession): void {
     const entry = state.agentStatusByPaneKey[session.cacheKey]
     const inferenceResult = session.flushPendingInterruptInference()
     const dropStatus = (): void => {
+      // Why inside dropStatus: it runs only once a leaked nested-shell D is
+      // ruled out, so a live wrapper's agent never loses its stamp.
+      retireUnusedQuickCommandStamp(session.cacheKey)
       if (inferenceResult === true) {
         session.dropCommandFinishedStatusIfSameTurn(entry, { allowInferredInterrupt: true })
         return

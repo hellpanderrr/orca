@@ -34,7 +34,7 @@ export type ResumeSleepingAgentSessionsOptions = {
   onSessionLaunched?: (tabId: string) => void
 }
 
-function getResumeLaunchTarget(worktreeId: string): AgentResumeLaunchTarget {
+export function getResumeLaunchTarget(worktreeId: string): AgentResumeLaunchTarget {
   const state = useAppStore.getState()
   const worktree = state.getKnownWorktreeById(worktreeId)
   const repo = worktree ? state.repos.find((entry) => entry.id === worktree.repoId) : null
